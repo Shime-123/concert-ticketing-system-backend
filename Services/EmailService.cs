@@ -1,93 +1,126 @@
-using System.Net;
-using System.Net.Mail;
-using QRCoder;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using QRCoder;
+using System.Net;
+using System.Net.Mail;
 
 namespace Concert_Backend.Services
 {
     public class EmailService
     {
         private readonly IConfiguration _config;
+        private readonly IWebHostEnvironment _env;
 
-        public EmailService(IConfiguration config)
+        public EmailService(IConfiguration config, IWebHostEnvironment env)
         {
             _config = config;
+            _env = env;
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
-        public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketDetails)
+        public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketDetails, string ticketType, int qty, string ticketId)
         {
             // 1. Generate QR Code
             using QRCodeGenerator qrGenerator = new QRCodeGenerator();
-            using QRCodeData qrCodeData = qrGenerator.CreateQrCode(ticketDetails, QRCodeGenerator.ECCLevel.Q);
+            using QRCodeData qrCodeData = qrGenerator.CreateQrCode($"ID:{ticketId}|Name:{customerName}", QRCodeGenerator.ECCLevel.Q);
             using PngByteQRCode qrCode = new PngByteQRCode(qrCodeData);
             byte[] qrCodeImage = qrCode.GetGraphic(20);
 
-            // 2. Generate PDF
+            // 2. Define Assets
+            string bgPath = Path.Combine(_env.WebRootPath, "assets", "artist.jpg");
+
+            // 3. Generate PDF (600x300 Landscape)
             byte[] pdfBytes = Document.Create(container =>
             {
                 container.Page(page =>
                 {
-                    page.Size(PageSizes.A5);
-                    page.Margin(1, Unit.Centimetre);
-                    page.PageColor(Colors.White);
-                    // FIXED: Using string "Helvetica" instead of Fonts.Helvetica
-                    page.DefaultTextStyle(x => x.FontSize(12).FontFamily("Helvetica"));
+                    // Set custom size: 600pt x 300pt (Landscape)
+                    page.Size(new PageSize(600, 300));
+                    page.Margin(0);
 
-                    page.Header().Text("OFFICIAL CONCERT TICKET")
-                        .SemiBold().FontSize(20).FontColor(Colors.Blue.Medium);
-
-                    page.Content().PaddingVertical(10).Column(col =>
+                    // --- LAYER 1: Background Image ---
+                    page.Background().Stack(stack =>
                     {
-                        col.Item().Text($"Customer: {customerName}").FontSize(14);
-                        col.Item().PaddingVertical(5).LineHorizontal(1).LineColor(Colors.Grey.Lighten2);
-                        
-                        col.Item().AlignCenter().MaxWidth(150).Image(qrCodeImage); // QR Code
-                        
-                        col.Item().AlignCenter().PaddingTop(10).Text(ticketDetails).FontSize(10).Italic();
-                        
-                        col.Item().PaddingTop(10).AlignCenter().Text("Please present this QR code at the entrance.")
-                            .FontSize(10).FontColor(Colors.Grey.Medium);
+                        if (File.Exists(bgPath))
+                            stack.Item().Image(bgPath).FitArea();
+                        else
+                            stack.Item().Placeholder().Background(Colors.Black);
+
+                        // Dark Overlay for readability (52% opacity)
+                        stack.Item().AlignCenter().AlignMiddle().Background(Colors.Black.Medium).Opacity(0.52f);
                     });
 
-                    page.Footer().AlignCenter().Text(x =>
+                    // --- LAYER 2: Content ---
+                    page.Content().Padding(10).Layers(layers =>
                     {
-                        x.Span("Ticket Generated on: ");
-                        x.Span(DateTime.Now.ToString("f")).SemiBold();
+                        // Neon Border Effect
+                        layers.Layer().Canvas((canvas, size) =>
+                        {
+                            canvas.DrawRoundRect(0, 0, size.Width, size.Height, 12, Paint.Stroke(Colors.Pink.Medium, 2));
+                            canvas.DrawRoundRect(5, 5, size.Width - 10, size.Height - 10, 10, Paint.Stroke(Colors.Cyan.Medium, 1));
+                        });
+
+                        layers.PrimaryLayer().Row(row =>
+                        {
+                            // Left Section: Tear-off Stub
+                            row.RelativeItem(1.5f).BorderRight(1).DashArray(new[] { 5f, 5f }).BorderColor(Colors.Grey.Lighten2).Padding(15).Column(col =>
+                            {
+                                col.Item().RotateLeft().Text("TEAR HERE").FontSize(9).FontColor(Colors.White).SemiBold();
+                                col.Spacing(10);
+                                col.Item().AlignCenter().Text("SCAN ME").FontSize(8).FontColor(Colors.Cyan.Lighten3);
+                                col.Item().AlignCenter().MaxWidth(80).Image(qrCodeImage);
+                            });
+
+                            // Right Section: Main Info
+                            row.RelativeItem(3.5f).Padding(20).Column(col =>
+                            {
+                                col.Item().Text("SONIC RESONANCE 2026").FontSize(28).ExtraBold().FontColor(Colors.White);
+                                col.Item().Text("Main Arena • " + DateTime.Now.ToString("f")).FontSize(10).FontColor(Colors.Cyan.Lighten3);
+                                
+                                col.Spacing(15);
+
+                                col.Item().Table(table =>
+                                {
+                                    table.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); });
+                                    
+                                    table.Cell().Text("NAME:").FontColor(Colors.Pink.Lighten3).FontSize(10).Bold();
+                                    table.Cell().Text(customerName).FontColor(Colors.White).FontSize(10);
+
+                                    table.Cell().Text("TYPE:").FontColor(Colors.Pink.Lighten3).FontSize(10).Bold();
+                                    table.Cell().Text(ticketType).FontColor(Colors.White).FontSize(10);
+
+                                    table.Cell().Text("QTY:").FontColor(Colors.Pink.Lighten3).FontSize(10).Bold();
+                                    table.Cell().Text(qty.ToString()).FontColor(Colors.White).FontSize(10);
+                                });
+
+                                col.Item().AlignBottom().AlignCenter().Text("Non-transferable • Powered by Live Concert").FontSize(7).FontColor(Colors.Grey.Lighten1);
+                            });
+                        });
                     });
                 });
             }).GeneratePdf();
 
-            // 3. Configure SMTP
+            // 4. SMTP Send (Same as your previous working version)
             using var smtpClient = new SmtpClient("smtp.gmail.com")
             {
                 Port = 587,
-                Credentials = new NetworkCredential(
-                    _config["EmailSettings:EmailUser"],
-                    _config["EmailSettings:EmailPass"]
-                ),
+                Credentials = new NetworkCredential(_config["EmailSettings:EmailUser"], _config["EmailSettings:EmailPass"]),
                 EnableSsl = true,
             };
 
-            // 4. Create Message
             var mailMessage = new MailMessage
             {
                 From = new MailAddress(_config["EmailSettings:EmailUser"]!),
-                Subject = "Your Concert Ticket + QR Code",
-                Body = $"<h1>Hello {customerName}</h1><p>Thank you for your purchase. Your official ticket is attached as a PDF.</p>",
+                Subject = "Your Exclusive Concert Ticket",
+                Body = "<h1>Get Ready!</h1><p>Your ticket is attached below.</p>",
                 IsBodyHtml = true,
             };
-
             mailMessage.To.Add(toEmail);
 
-            // 5. Attach PDF (using MemoryStream)
             using (var ms = new MemoryStream(pdfBytes))
             {
-                var attachment = new Attachment(ms, "ConcertTicket.pdf", "application/pdf");
-                mailMessage.Attachments.Add(attachment);
-                
+                mailMessage.Attachments.Add(new Attachment(ms, "Ticket.pdf", "application/pdf"));
                 await smtpClient.SendMailAsync(mailMessage);
             }
         }
