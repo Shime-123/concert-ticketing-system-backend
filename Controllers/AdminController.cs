@@ -52,5 +52,23 @@ public async Task<IActionResult> GetDashboardStats()
         return StatusCode(500, new { message = "Error fetching stats", error = ex.Message });
     }
 }
+[HttpGet("export")]
+public async Task<IActionResult> ExportPurchases()
+{
+    var purchases = await _context.Purchases.OrderByDescending(p => p.CreatedAt).ToListAsync();
+    
+    // Create a CSV string
+    var csv = new System.Text.StringBuilder();
+    csv.AppendLine("PaymentId,UserEmail,TicketType,Quantity,Date");
+
+    foreach (var p in purchases)
+    {
+        csv.AppendLine($"{p.PaymentId},{p.UserEmail},{p.TicketType},{p.Quantity},{p.CreatedAt}");
+    }
+
+    // Return the string as a downloadable .csv file
+    var bytes = System.Text.Encoding.UTF8.GetBytes(csv.ToString());
+    return File(bytes, "text/csv", "TicketSalesReport.csv");
+}
     }
 }
