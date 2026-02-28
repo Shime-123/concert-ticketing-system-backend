@@ -19,89 +19,79 @@ namespace Concert_Backend.Services
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
-        public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketDetails, string ticketType, int qty, string ticketId)
+        public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue)
         {
             // 1. Generate QR Code
             using QRCodeGenerator qrGenerator = new QRCodeGenerator();
-            using QRCodeData qrCodeData = qrGenerator.CreateQrCode($"ID:{ticketId}|Name:{customerName}", QRCodeGenerator.ECCLevel.Q);
+            using QRCodeData qrCodeData = qrGenerator.CreateQrCode(ticketId, QRCodeGenerator.ECCLevel.Q);
             using PngByteQRCode qrCode = new PngByteQRCode(qrCodeData);
             byte[] qrCodeImage = qrCode.GetGraphic(20);
 
-            // 2. Define Assets
-            string bgPath = Path.Combine(_env.WebRootPath, "assets", "artist.jpg");
+            // 2. Determine Background Image
+            string imageName = artist.ToLower().Contains("teddy") ? "teddy afro.jpg" : "artist.jpg";
+            string bgPath = Path.Combine(_env.ContentRootPath, "assets", imageName);
 
-            // 3. Generate PDF (600x300 Landscape)
+            // 3. Generate PDF
             byte[] pdfBytes = Document.Create(container =>
             {
                 container.Page(page =>
                 {
-                    // Set custom size: 600pt x 300pt (Landscape)
-                    page.Size(new PageSize(600, 300));
+                    page.Size(new PageSize(500, 300)); // Smaller fit to pull layout tighter
                     page.Margin(0);
 
-                    // --- LAYER 1: Background Image ---
-                    page.Background().Stack(stack =>
+                    // Background Layer
+                    page.Background().Layers(layers =>
                     {
                         if (File.Exists(bgPath))
-                            stack.Item().Image(bgPath).FitArea();
+                            layers.PrimaryLayer().Image(bgPath).FitArea();
                         else
-                            stack.Item().Placeholder().Background(Colors.Black);
+                            layers.PrimaryLayer().Background(Colors.Black);
 
-                        // Dark Overlay for readability (52% opacity)
-                        stack.Item().AlignCenter().AlignMiddle().Background(Colors.Black.Medium).Opacity(0.52f);
+                        layers.Layer().Background("#CC000000"); // Dark glass effect
                     });
 
-                    // --- LAYER 2: Content ---
-                    page.Content().Padding(10).Layers(layers =>
+                    page.Content().Padding(10).Row(row =>
                     {
-                        // Neon Border Effect
-                        layers.Layer().Canvas((canvas, size) =>
+                        // LEFT: Ticket Details
+                        row.RelativeItem(3).Padding(15).Column(col =>
                         {
-                            canvas.DrawRoundRect(0, 0, size.Width, size.Height, 12, Paint.Stroke(Colors.Pink.Medium, 2));
-                            canvas.DrawRoundRect(5, 5, size.Width - 10, size.Height - 10, 10, Paint.Stroke(Colors.Cyan.Medium, 1));
+                            col.Item().Text(artist.ToUpper()).FontSize(24).ExtraBold().FontColor(Colors.White);
+                            col.Item().Text($"{venue} • {DateTime.Now:MMMM dd, yyyy}").FontSize(9).FontColor(Colors.Cyan.Lighten3);
+                            
+                            col.Spacing(10);
+
+                            col.Item().Table(table =>
+                            {
+                                table.ColumnsDefinition(c => { c.ConstantColumn(60); c.RelativeColumn(); });
+                                
+                                void AddRow(string label, string value) {
+                                    table.Cell().PaddingVertical(1).Text(label).FontColor(Colors.Grey.Lighten2).FontSize(9).Bold();
+                                    table.Cell().PaddingVertical(1).Text(value).FontColor(Colors.White).FontSize(9);
+                                }
+
+                                AddRow("Ticket ID:", ticketId.Length > 15 ? ticketId.Substring(0, 15) : ticketId);
+                                AddRow("Name:", customerName);
+                                AddRow("Type:", ticketType);
+                                AddRow("Qty:", qty.ToString());
+                            });
                         });
 
-                        layers.PrimaryLayer().Row(row =>
+                        // RIGHT: QR Stub
+                        row.RelativeItem(1.5f).Padding(10).Column(col =>
                         {
-                            // Left Section: Tear-off Stub
-                            row.RelativeItem(1.5f).BorderRight(1).DashArray(new[] { 5f, 5f }).BorderColor(Colors.Grey.Lighten2).Padding(15).Column(col =>
-                            {
-                                col.Item().RotateLeft().Text("TEAR HERE").FontSize(9).FontColor(Colors.White).SemiBold();
-                                col.Spacing(10);
-                                col.Item().AlignCenter().Text("SCAN ME").FontSize(8).FontColor(Colors.Cyan.Lighten3);
-                                col.Item().AlignCenter().MaxWidth(80).Image(qrCodeImage);
-                            });
-
-                            // Right Section: Main Info
-                            row.RelativeItem(3.5f).Padding(20).Column(col =>
-                            {
-                                col.Item().Text("SONIC RESONANCE 2026").FontSize(28).ExtraBold().FontColor(Colors.White);
-                                col.Item().Text("Main Arena • " + DateTime.Now.ToString("f")).FontSize(10).FontColor(Colors.Cyan.Lighten3);
-                                
-                                col.Spacing(15);
-
-                                col.Item().Table(table =>
-                                {
-                                    table.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); });
-                                    
-                                    table.Cell().Text("NAME:").FontColor(Colors.Pink.Lighten3).FontSize(10).Bold();
-                                    table.Cell().Text(customerName).FontColor(Colors.White).FontSize(10);
-
-                                    table.Cell().Text("TYPE:").FontColor(Colors.Pink.Lighten3).FontSize(10).Bold();
-                                    table.Cell().Text(ticketType).FontColor(Colors.White).FontSize(10);
-
-                                    table.Cell().Text("QTY:").FontColor(Colors.Pink.Lighten3).FontSize(10).Bold();
-                                    table.Cell().Text(qty.ToString()).FontColor(Colors.White).FontSize(10);
-                                });
-
-                                col.Item().AlignBottom().AlignCenter().Text("Non-transferable • Powered by Live Concert").FontSize(7).FontColor(Colors.Grey.Lighten1);
-                            });
+                            col.Item().AlignCenter().MaxWidth(90).Image(qrCodeImage);
+                            col.Item().PaddingTop(5).AlignCenter().Text("Scan to verify").FontSize(7).FontColor(Colors.Grey.Lighten1);
+                            
+                            col.Item().AlignBottom().AlignCenter()
+                                .Background(Colors.Yellow.Medium)
+                                .PaddingHorizontal(8)
+                                .Text(ticketType.ToUpper()).FontSize(10).Black().Bold();
                         });
                     });
                 });
             }).GeneratePdf();
 
-            // 4. SMTP Send (Same as your previous working version)
+            // 4. SMTP Send
             using var smtpClient = new SmtpClient("smtp.gmail.com")
             {
                 Port = 587,
@@ -111,9 +101,9 @@ namespace Concert_Backend.Services
 
             var mailMessage = new MailMessage
             {
-                From = new MailAddress(_config["EmailSettings:EmailUser"]!),
-                Subject = "Your Exclusive Concert Ticket",
-                Body = "<h1>Get Ready!</h1><p>Your ticket is attached below.</p>",
+                From = new MailAddress(_config["EmailSettings:EmailUser"]!, "Ethio Concert Organization"),
+                Subject = $"Your Ticket for {artist}",
+                Body = $"Hello {customerName}, your ticket for {artist} at {venue} is attached.",
                 IsBodyHtml = true,
             };
             mailMessage.To.Add(toEmail);
