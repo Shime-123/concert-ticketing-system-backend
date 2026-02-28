@@ -15,42 +15,41 @@ namespace Concert_Backend.Controllers
             _context = context;
         }
 
-[HttpGet("stats")]
-public async Task<IActionResult> GetDashboardStats()
-{
-    try
-    {
-        // 1. Calculate Total Revenue
-        var totalRevenue = await _context.Tickets.SumAsync(t => t.Price);
-
-        // 2. FIXED: Sum the Quantity column instead of counting rows
-        // This ensures a purchase of 3 tickets counts as 3, not 1.
-        var totalTickets = await _context.Purchases.SumAsync(p => p.Quantity);
-
-        // 3. Get Recent Transactions
-        var recentPurchases = await _context.Purchases
-            .OrderByDescending(p => p.CreatedAt)
-            .Take(5)
-            .Select(p => new {
-                p.PaymentId,
-                p.UserEmail,
-                p.TicketType,
-                p.Quantity,
-                p.CreatedAt
-            })
-            .ToListAsync();
-
-        return Ok(new
+        [HttpGet("stats")]
+        public async Task<IActionResult> GetDashboardStats()
         {
-            TotalRevenue = totalRevenue,
-            TotalTicketsSold = totalTickets, // Now reflects true ticket count
-            RecentPurchases = recentPurchases
-        });
-    }
-    catch (Exception ex)
-    {
-        return StatusCode(500, new { message = "Error fetching stats", error = ex.Message });
-    }
-}
+            try
+            {
+                // 1. Calculate Total Revenue (Sum of all ticket prices)
+                var totalRevenue = await _context.Tickets.SumAsync(t => t.Price);
+
+                // 2. Calculate Total Tickets Sold
+                var totalTickets = await _context.Tickets.CountAsync();
+
+                // 3. Get Recent Transactions (Join Purchase and User)
+                var recentPurchases = await _context.Purchases
+                    .OrderByDescending(p => p.CreatedAt)
+                    .Take(5)
+                    .Select(p => new {
+                        p.PaymentId,
+                        p.UserEmail,
+                        p.TicketType,
+                        p.Quantity,
+                        p.CreatedAt
+                    })
+                    .ToListAsync();
+
+                return Ok(new
+                {
+                    TotalRevenue = totalRevenue,
+                    TotalTicketsSold = totalTickets,
+                    RecentPurchases = recentPurchases
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error fetching stats", error = ex.Message });
+            }
+        }
     }
 }
