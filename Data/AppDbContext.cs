@@ -9,6 +9,7 @@ namespace Concert_Backend.Data
 
         public DbSet<User> Users { get; set; }
         public DbSet<Purchase> Purchases { get; set; }
+        public DbSet<Concert> Concerts { get; set; }
         public DbSet<Ticket> Tickets { get; set; }
 
 protected override void OnModelCreating(ModelBuilder modelBuilder)

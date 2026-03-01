@@ -11,5 +11,7 @@ namespace Concert_Backend.Models
         public decimal Price { get; set; } // Matches DECIMAL(18,2)
         public string Status { get; set; } = "Valid";
         public Purchase? Purchase { get; set; }
+        public int ConcertId { get; set; }
+        public Concert Concert { get; set; }
     }
 }
