@@ -42,12 +42,19 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var context = services.GetRequiredService<AppDbContext>();
-        context.Database.Migrate();
-        Console.WriteLine("Database migration successful!");
+        Console.WriteLine("Checking for pending migrations...");
+        
+        // This forces the tables to be created
+        context.Database.Migrate(); 
+        
+        Console.WriteLine("Migrations applied successfully!");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"An error occurred during migration: {ex.Message}");
+        // This will tell us EXACTLY why it failed in the Render logs
+        Console.WriteLine($"MIGRATION ERROR: {ex.Message}");
+        if (ex.InnerException != null) 
+            Console.WriteLine($"INNER ERROR: {ex.InnerException.Message}");
     }
 }
 
