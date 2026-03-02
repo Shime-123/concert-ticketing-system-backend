@@ -91,7 +91,7 @@ namespace Concert_Backend.Controllers
                     UserEmail = session.CustomerDetails?.Email ?? request.UserEmail,
                     TicketType = session.Metadata["ticketType"],
                     Quantity = int.Parse(session.Metadata["quantity"]),
-                    CreatedAt = DateTime.Now
+                    CreatedAt = DateTime.UtcNow
                 };
                 _context.Purchases.Add(purchase);
 

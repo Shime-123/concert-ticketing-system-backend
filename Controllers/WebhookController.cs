@@ -55,7 +55,7 @@ public async Task<IActionResult> Index()
                 UserEmail = email,
                 TicketType = session.Metadata.GetValueOrDefault("ticketType", "Regular"),
                 Quantity = int.Parse(session.Metadata.GetValueOrDefault("quantity", "1")),
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow
             };
 
             // 2. Create Ticket
