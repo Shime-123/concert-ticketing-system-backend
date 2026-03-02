@@ -1,12 +1,13 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
 namespace concertbackend.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialNormalizedSchema : Migration
+    public partial class InitialPostgresCreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -15,13 +16,17 @@ namespace concertbackend.Migrations
                 name: "Concerts",
                 columns: table => new
                 {
-                    ConcertId = table.Column<int>(type: "int", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    ConcertTitle = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Venue = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Date = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    Price = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
-                    ImageUrl = table.Column<string>(type: "nvarchar(max)", nullable: false)
+                    ConcertId = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    ConcertTitle = table.Column<string>(type: "text", nullable: true),
+                    Venue = table.Column<string>(type: "text", nullable: true),
+                    Date = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    ImageUrl = table.Column<string>(type: "text", nullable: true),
+                    RegularPrice = table.Column<decimal>(type: "numeric(18,2)", nullable: false),
+                    RegularStripeId = table.Column<string>(type: "text", nullable: true),
+                    VipPrice = table.Column<decimal>(type: "numeric(18,2)", nullable: false),
+                    VipStripeId = table.Column<string>(type: "text", nullable: true),
+                    IsSoldOut = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -32,11 +37,13 @@ namespace concertbackend.Migrations
                 name: "Users",
                 columns: table => new
                 {
-                    Email = table.Column<string>(type: "nvarchar(450)", nullable: false),
-                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    PasswordHash = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Role = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    PhoneNumber = table.Column<string>(type: "nvarchar(max)", nullable: true)
+                    Email = table.Column<string>(type: "text", nullable: false),
+                    Name = table.Column<string>(type: "text", nullable: true),
+                    PasswordHash = table.Column<string>(type: "text", nullable: true),
+                    Role = table.Column<string>(type: "text", nullable: true),
+                    PhoneNumber = table.Column<string>(type: "text", nullable: true),
+                    ResetCode = table.Column<string>(type: "text", nullable: true),
+                    ResetCodeExpiry = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -47,11 +54,11 @@ namespace concertbackend.Migrations
                 name: "Purchases",
                 columns: table => new
                 {
-                    PaymentId = table.Column<string>(type: "nvarchar(450)", nullable: false),
-                    UserEmail = table.Column<string>(type: "nvarchar(450)", nullable: false),
-                    TicketType = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Quantity = table.Column<int>(type: "int", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
+                    PaymentId = table.Column<string>(type: "text", nullable: false),
+                    UserEmail = table.Column<string>(type: "text", nullable: true),
+                    TicketType = table.Column<string>(type: "text", nullable: true),
+                    Quantity = table.Column<int>(type: "integer", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -60,20 +67,19 @@ namespace concertbackend.Migrations
                         name: "FK_Purchases_Users_UserEmail",
                         column: x => x.UserEmail,
                         principalTable: "Users",
-                        principalColumn: "Email",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "Email");
                 });
 
             migrationBuilder.CreateTable(
                 name: "Tickets",
                 columns: table => new
                 {
-                    TicketId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    PaymentId = table.Column<string>(type: "nvarchar(450)", nullable: false),
-                    CustomerName = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    Price = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
-                    Status = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ConcertId = table.Column<int>(type: "int", nullable: false)
+                    TicketId = table.Column<Guid>(type: "uuid", nullable: false),
+                    PaymentId = table.Column<string>(type: "text", nullable: true),
+                    CustomerName = table.Column<string>(type: "text", nullable: true),
+                    Price = table.Column<decimal>(type: "numeric(18,2)", nullable: false),
+                    Status = table.Column<string>(type: "text", nullable: true),
+                    ConcertId = table.Column<int>(type: "integer", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -88,8 +94,7 @@ namespace concertbackend.Migrations
                         name: "FK_Tickets_Purchases_PaymentId",
                         column: x => x.PaymentId,
                         principalTable: "Purchases",
-                        principalColumn: "PaymentId",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "PaymentId");
                 });
 
             migrationBuilder.CreateIndex(

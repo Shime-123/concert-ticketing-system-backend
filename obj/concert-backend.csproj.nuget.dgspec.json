@@ -65,13 +65,13 @@
               "target": "Package",
               "version": "[8.0.0, )"
             },
-            "Microsoft.EntityFrameworkCore.SqlServer": {
-              "target": "Package",
-              "version": "[8.0.0, )"
-            },
             "MimeKit": {
               "target": "Package",
               "version": "[4.15.0, )"
+            },
+            "Npgsql.EntityFrameworkCore.PostgreSQL": {
+              "target": "Package",
+              "version": "[8.0.0, )"
             },
             "QRCoder": {
               "target": "Package",
@@ -87,7 +87,7 @@
             },
             "Swashbuckle.AspNetCore": {
               "target": "Package",
-              "version": "[10.1.4, )"
+              "version": "[6.6.2, )"
             }
           },
           "imports": [
@@ -107,7 +107,7 @@
               "version": "[8.0.20, 8.0.20]"
             },
             {
-              "name": "Microsoft.NETCore.App.Host.win-x64",
+              "name": "Microsoft.NETCore.App.Host.win-x86",
               "version": "[8.0.20, 8.0.20]"
             },
             {
