@@ -1,17 +1,28 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Concert_Backend.Models
 {
     public class Ticket
     {
         [Key]
-        public Guid TicketId { get; set; } // Matches UNIQUEIDENTIFIER
-        public string PaymentId { get; set; } = null!; // Matches NVARCHAR
-        public string? CustomerName { get; set; } // Matches NVARCHAR (Nullable)
-        public decimal Price { get; set; } // Matches DECIMAL(18,2)
-        public string Status { get; set; } = "Valid";
+        public Guid TicketId { get; set; } = Guid.NewGuid();
+        
+        public string PaymentId { get; set; } = null!;
+        
+        [ForeignKey("PaymentId")]
         public Purchase? Purchase { get; set; }
+
+        public string? CustomerName { get; set; }
+        
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal Price { get; set; }
+        
+        public string Status { get; set; } = "Valid";
+
         public int ConcertId { get; set; }
-        public Concert Concert { get; set; }
+        
+        [ForeignKey("ConcertId")]
+        public Concert Concert { get; set; } = null!;
     }
 }

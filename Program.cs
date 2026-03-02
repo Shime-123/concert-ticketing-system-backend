@@ -4,14 +4,15 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Add Database Context
+// --- 1. Database Context ---
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// 2. Register Custom Services
-builder.Services.AddScoped<EmailService>();
+// --- 2. Register Custom Services (FIXED) ---
+// This tells .NET: "When someone asks for IEmailService, give them EmailService"
+builder.Services.AddScoped<IEmailService, EmailService>();
 
-// 3. CORS logic
+// --- 3. CORS Policy ---
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReact",
@@ -20,10 +21,11 @@ builder.Services.AddCors(options =>
                         .AllowAnyHeader());
 });
 
-// 4. Add Controllers (Removed Newtonsoft to stop the error)
+// --- 4. Controllers ---
 builder.Services.AddControllers()
-    .AddJsonOptions(options => {
-        options.JsonSerializerOptions.PropertyNamingPolicy = null; 
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
     });
 
 builder.Services.AddEndpointsApiExplorer();
@@ -31,6 +33,7 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+// Enable Swagger for development
 app.UseSwagger();
 app.UseSwaggerUI();
 

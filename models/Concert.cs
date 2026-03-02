@@ -1,12 +1,22 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-public class Concert
+namespace Concert_Backend.Models
 {
-    public int ConcertId { get; set; }
-    public string ArtistName { get; set; }
-    public string Venue { get; set; }
-    public DateTime Date { get; set; }
-    public decimal Price { get; set; }
-    public string ImageUrl { get; set; } // For the concert poster
+    public class Concert
+    {
+        public int ConcertId { get; set; }
+        public string ConcertTitle { get; set; }
+        public string Venue { get; set; }
+        public DateTime Date { get; set; }
+        public string ImageUrl { get; set; }
+
+        // New Logic
+        public decimal RegularPrice { get; set; }
+        public string RegularStripeId { get; set; }
+        
+        public decimal VipPrice { get; set; }
+        public string VipStripeId { get; set; }
+        public bool IsSoldOut { get; set; } = false;
+    }
 }

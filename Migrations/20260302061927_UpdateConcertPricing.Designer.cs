@@ -4,6 +4,7 @@ using Concert_Backend.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace concertbackend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260302061927_UpdateConcertPricing")]
+    partial class UpdateConcertPricing
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -40,9 +43,6 @@ namespace concertbackend.Migrations
                     b.Property<string>("ImageUrl")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("IsSoldOut")
-                        .HasColumnType("bit");
 
                     b.Property<decimal>("RegularPrice")
                         .HasColumnType("decimal(18,2)");
@@ -140,12 +140,6 @@ namespace concertbackend.Migrations
 
                     b.Property<string>("PhoneNumber")
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("ResetCode")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime?>("ResetCodeExpiry")
-                        .HasColumnType("datetime2");
 
                     b.Property<string>("Role")
                         .IsRequired()

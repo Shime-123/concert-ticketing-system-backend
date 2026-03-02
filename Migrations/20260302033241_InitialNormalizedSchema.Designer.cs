@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace concertbackend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260301090752_InitialConcertsTable")]
-    partial class InitialConcertsTable
+    [Migration("20260302033241_InitialNormalizedSchema")]
+    partial class InitialNormalizedSchema
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -25,7 +25,7 @@ namespace concertbackend.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("Concert", b =>
+            modelBuilder.Entity("Concert_Backend.Models.Concert", b =>
                 {
                     b.Property<int>("ConcertId")
                         .ValueGeneratedOnAdd()
@@ -33,7 +33,7 @@ namespace concertbackend.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("ConcertId"));
 
-                    b.Property<string>("ArtistName")
+                    b.Property<string>("ConcertTitle")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
@@ -152,7 +152,7 @@ namespace concertbackend.Migrations
 
             modelBuilder.Entity("Concert_Backend.Models.Ticket", b =>
                 {
-                    b.HasOne("Concert", "Concert")
+                    b.HasOne("Concert_Backend.Models.Concert", "Concert")
                         .WithMany()
                         .HasForeignKey("ConcertId")
                         .OnDelete(DeleteBehavior.Cascade)

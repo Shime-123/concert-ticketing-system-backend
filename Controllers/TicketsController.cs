@@ -16,28 +16,29 @@ namespace Concert_Backend.Controllers
             _context = context;
         }
 
-        [HttpGet("my-tickets")]
-        public async Task<IActionResult> GetMyTickets([FromQuery] string email)
-        {
-            if (string.IsNullOrEmpty(email)) return BadRequest("Email is required");
+[HttpGet("my-tickets")]
+public async Task<IActionResult> GetMyTickets([FromQuery] string email)
+{
+    if (string.IsNullOrEmpty(email)) return BadRequest("Email required");
 
-            // We look through Purchases linked to this user email, then include the Tickets
-            var tickets = await _context.Tickets
-                .Include(t => t.Purchase)
-                .Where(t => t.Purchase.UserEmail == email)
-                .Select(t => new {
-                    t.TicketId,
-                    t.PaymentId,
-                    t.CustomerName,
-                    t.Price,
-                    t.Status,
-                    // If you have artist/venue in metadata or models, add them here:
-                    Artist = "Ethiopian Concert", 
-                    Date = DateTime.Now.ToShortDateString()
-                })
-                .ToListAsync();
+    var tickets = await _context.Tickets
+        .Include(t => t.Concert)
+        // Link to Purchase table to verify ownership via Email
+        .Where(t => _context.Purchases.Any(p => p.PaymentId == t.PaymentId && p.UserEmail == email))
+        .Select(t => new {
+            t.TicketId,
+            t.PaymentId,
+            t.CustomerName,
+            t.Price,
+            t.Status,
+            ConcertTitle = t.Concert.ConcertTitle, 
+            Venue = t.Concert.Venue,
+            Date = t.Concert.Date.ToString("MMM dd, yyyy"),
+            Time = t.Concert.Date.ToString("hh:mm tt")
+        })
+        .ToListAsync();
 
-            return Ok(tickets);
-        }
+    return Ok(tickets);
+}
     }
 }

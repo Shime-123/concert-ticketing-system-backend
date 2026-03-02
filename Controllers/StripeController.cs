@@ -3,6 +3,7 @@ using Stripe.Checkout;
 using Stripe;
 using Concert_Backend.Data; 
 using Concert_Backend.Models;
+using Concert_Backend.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Concert_Backend.Controllers
@@ -12,14 +13,14 @@ namespace Concert_Backend.Controllers
     public class StripeController : ControllerBase
     {
         private readonly IConfiguration _configuration;
-        // FIX 1: Declare the database context field
         private readonly AppDbContext _context;
+        private readonly EmailService _emailService;
 
-        // FIX 2: Add AppDbContext to the constructor
-        public StripeController(IConfiguration configuration, AppDbContext context)
+        public StripeController(IConfiguration configuration, AppDbContext context, EmailService emailService)
         {
             _configuration = configuration;
-            _context = context; // Initialize the context
+            _context = context; 
+            _emailService = emailService;
             StripeConfiguration.ApiKey = _configuration["Stripe:SecretKey"];
         }
 
@@ -40,13 +41,14 @@ namespace Concert_Backend.Controllers
                     },
                 },
                 Mode = "payment",
-                SuccessUrl = domain + "/success?session_id={CHECKOUT_SESSION_ID}", // Added session_id helper
+                SuccessUrl = domain + "/success?session_id={CHECKOUT_SESSION_ID}", 
                 CancelUrl = domain + "/cancel",
                 Metadata = new Dictionary<string, string>
                 {
+                    { "concertId", request.ConcertId.ToString() },
                     { "ticketType", request.TicketType },
                     { "quantity", request.Quantity.ToString() },
-                    { "artist", request.Artist },
+                    { "concertTitle", request.ConcertTitle },
                     { "venue", request.Venue }
                 }
             };
@@ -56,33 +58,93 @@ namespace Concert_Backend.Controllers
             return Ok(new { url = session.Url });
         }
 
-        [HttpPost("finalize-purchase")]
+        [HttpPost("finalize")]
         public async Task<IActionResult> FinalizePurchase([FromBody] FinalizeRequest request)
         {
-            // FIX 3: Ensure property names match your specific Purchase model. 
-            // If your Purchase model uses different names (like 'Id' instead of 'PurchaseId'), change them here.
-            var purchase = new Purchase
+            if (string.IsNullOrEmpty(request.SessionId)) return BadRequest("Missing Session ID");
+
+            var service = new SessionService();
+            var session = await service.GetAsync(request.SessionId);
+
+            // 1. Check if record already exists (saved by Webhook)
+            var existingPurchase = await _context.Purchases.FirstOrDefaultAsync(p => p.PaymentId == session.Id);
+            var existingTicket = await _context.Tickets.FirstOrDefaultAsync(t => t.PaymentId == session.Id);
+
+            if (existingPurchase != null && existingTicket != null)
             {
-                // If you get error CS0117 here, check Purchase.cs for the correct property names
-                UserEmail = request.UserEmail,
-                // PurchaseDate = DateTime.UtcNow // If this fails, use 'CreatedAt' if that's what's in your model
-            };
+                // ✅ Record exists! Trigger email in background and return success immediately
+                Console.WriteLine("♻️ Webhook already saved data. Re-triggering email background task...");
+                _ = SendBackgroundEmail(existingPurchase, existingTicket, session);
+                return Ok(new { message = "Success (Processed via Webhook)" });
+            }
 
-            var ticket = new Ticket
+            // 2. If record doesn't exist, save it now
+            session.Metadata.TryGetValue("concertId", out var cIdStr);
+            int.TryParse(cIdStr, out int concertId);
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                TicketId = Guid.NewGuid(),
-                PaymentId = request.SessionId,
-                CustomerName = request.UserName,
-                Price = 20.00m, 
-                Status = "Valid",
-                Purchase = purchase
-            };
+                var purchase = new Purchase
+                {
+                    PaymentId = session.Id,
+                    UserEmail = session.CustomerDetails?.Email ?? request.UserEmail,
+                    TicketType = session.Metadata["ticketType"],
+                    Quantity = int.Parse(session.Metadata["quantity"]),
+                    CreatedAt = DateTime.Now
+                };
+                _context.Purchases.Add(purchase);
 
-            _context.Purchases.Add(purchase);
-            _context.Tickets.Add(ticket);
-            await _context.SaveChangesAsync();
+                var ticket = new Ticket
+                {
+                    TicketId = Guid.NewGuid(),
+                    PaymentId = session.Id,
+                    CustomerName = session.CustomerDetails?.Name ?? request.UserName,
+                    Price = (decimal)((session.AmountTotal ?? 0) / 100.0),
+                    Status = "Valid",
+                    ConcertId = concertId
+                };
+                _context.Tickets.Add(ticket);
 
-            return Ok(new { message = "Database updated successfully" });
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                Console.WriteLine("✅ Database Saved. Triggering email background task...");
+                _ = SendBackgroundEmail(purchase, ticket, session);
+
+                return Ok(new { message = "Success" });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                Console.WriteLine($"❌ DATABASE ERROR: {ex.Message}");
+                return StatusCode(500, ex.Message);
+            }
+        }
+
+        // Helper method for "Fire and Forget" email sending
+        private async Task SendBackgroundEmail(Purchase purchase, Ticket ticket, Session session)
+        {
+            try 
+            {
+                Console.WriteLine($"📧 ATTEMPTING EMAIL TO: {purchase.UserEmail}");
+                
+                await _emailService.SendTicketEmailAsync(
+                    purchase.UserEmail,
+                    ticket.CustomerName,
+                    purchase.TicketType,
+                    purchase.Quantity,
+                    ticket.TicketId.ToString(),
+                    session.Metadata["concertTitle"],
+                    session.Metadata["venue"]
+                );
+
+                Console.WriteLine("📧 EMAIL SENT SUCCESSFULLY.");
+            }
+            catch (Exception mailEx)
+            {
+                Console.WriteLine($"❌ EMAIL BACKGROUND TASK FAILED: {mailEx.Message}");
+            }
         }
     }
 
@@ -91,8 +153,10 @@ namespace Concert_Backend.Controllers
         public string PriceId { get; set; } = string.Empty;
         public int Quantity { get; set; }
         public string TicketType { get; set; } = string.Empty;
-        public string Artist { get; set; } = string.Empty;
+        public int ConcertId { get; set; } 
+        public string ConcertTitle { get; set; } = string.Empty;
         public string Venue { get; set; } = string.Empty;
+        public string UserEmail { get; set; } = string.Empty;
     }
 
     public class FinalizeRequest

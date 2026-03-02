@@ -31,88 +31,59 @@ public async Task<IActionResult> Index()
 
     try
     {
+        // FIX: Added throwOnApiVersionMismatch: false
         var stripeEvent = EventUtility.ConstructEvent(
-            json,
-            signature,
-            _configuration["Stripe:WebhookSecret"],
-            throwOnApiVersionMismatch: false
+            json, 
+            signature, 
+            _configuration["Stripe:WebhookSecret"], 
+            throwOnApiVersionMismatch: false 
         );
 
         if (stripeEvent.Type == Events.CheckoutSessionCompleted)
         {
             var session = stripeEvent.Data.Object as Session;
-            if (session == null) return BadRequest();
-
-            Console.WriteLine($"✅ Verified Signature! Processing session: {session.Id}");
-
-            // 1. Extract Core Data
-            var email = session.CustomerDetails?.Email ?? "unknown@test.com";
-            var name = session.CustomerDetails?.Name ?? "Guest";
             
-            // 2. Extract NEW Metadata (Artist and Venue)
-            session.Metadata.TryGetValue("ticketType", out var ticketType);
-            session.Metadata.TryGetValue("quantity", out var quantityStr);
-            session.Metadata.TryGetValue("artist", out var artist); // <--- NEW
-            session.Metadata.TryGetValue("venue", out var venue);   // <--- NEW
+            // Extract Metadata safely
+            session.Metadata.TryGetValue("concertId", out var cId);
+            int.TryParse(cId, out int concertId);
             
-            ticketType ??= "General Admission";
-            artist ??= "Teddy Afro"; // Fallback default
-            venue ??= "Main Arena";
-            int.TryParse(quantityStr ?? "1", out int quantity);
+            var email = session.CustomerDetails.Email;
 
-            // 3. Handle User
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-            if (user == null)
-            {
-                user = new User { Email = email, Name = name };
-                _context.Users.Add(user);
-            }
-
-            // 4. Create Purchase Record (Updated with Artist)
-            var purchase = new Purchase
-            {
+            // 1. Create Purchase
+            var purchase = new Purchase {
                 PaymentId = session.Id,
                 UserEmail = email,
-                TicketType = $"{artist} - {ticketType}", // Log which artist they bought
-                Quantity = quantity,
+                TicketType = session.Metadata.GetValueOrDefault("ticketType", "Regular"),
+                Quantity = int.Parse(session.Metadata.GetValueOrDefault("quantity", "1")),
                 CreatedAt = DateTime.Now
             };
-            _context.Purchases.Add(purchase);
 
-            // 5. Create Ticket Record
-            var ticket = new Ticket
-            {
+            // 2. Create Ticket
+            var ticket = new Ticket {
                 TicketId = Guid.NewGuid(),
                 PaymentId = session.Id,
-                CustomerName = name,
+                CustomerName = session.CustomerDetails.Name,
                 Price = (decimal)((session.AmountTotal ?? 0) / 100.0),
-                Status = "Valid"
+                Status = "Valid",
+                ConcertId = concertId
             };
+
+            _context.Purchases.Add(purchase);
             _context.Tickets.Add(ticket);
-
-            // 6. Save to Database
+            
             await _context.SaveChangesAsync();
-            Console.WriteLine($"💾 Data saved for {artist} concert successfully!");
-
-            // 7. Send Confirmation Email (Passing the artist and venue)
-            try 
-            {
-                // Ensure your EmailService.SendTicketEmailAsync signature is updated to accept these!
-                await _emailService.SendTicketEmailAsync(email, name, ticketType, quantity, session.Id, artist, venue);
-                Console.WriteLine($"📧 {artist} ticket confirmation email sent.");
-            }
-            catch (Exception emailEx)
-            {
-                Console.WriteLine($"⚠️ Database saved, but Email failed: {emailEx.Message}");
-            }
+            
+            // Optional: Logic to automatically set Sold Out if capacity reached
+            // await CheckAndSetSoldOutStatus(concertId); 
         }
 
         return Ok();
     }
-    catch (Exception e)
+    catch (Exception ex)
     {
-        Console.WriteLine($"❌ Server Error: {e.Message}");
-        return StatusCode(500, e.Message);
+        // This will now print the REAL error if something else fails
+        Console.WriteLine($"❌ Webhook Error: {ex.Message}");
+        return StatusCode(500, ex.Message);
     }
 }
     }
