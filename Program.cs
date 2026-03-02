@@ -1,7 +1,6 @@
 using Concert_Backend.Data;
 using Concert_Backend.Services;
 using Microsoft.EntityFrameworkCore;
-using Npgsql.EntityFrameworkCore.PostgreSQL;
 
 var builder = WebApplication.CreateBuilder(args);
 
