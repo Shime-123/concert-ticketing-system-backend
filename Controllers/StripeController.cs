@@ -27,7 +27,7 @@ namespace Concert_Backend.Controllers
         [HttpPost("create-checkout")]
         public async Task<IActionResult> CreateCheckout([FromBody] CheckoutRequest request)
         {
-            var domain = "http://localhost:3000"; 
+            var domain = "https://concert-ticketing-system-frontend.onrender.com"; 
 
             var options = new SessionCreateOptions
             {
