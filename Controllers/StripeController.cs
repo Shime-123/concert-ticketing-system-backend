@@ -14,9 +14,9 @@ namespace Concert_Backend.Controllers
     {
         private readonly IConfiguration _configuration;
         private readonly AppDbContext _context;
-        private readonly EmailService _emailService;
+        private readonly IEmailService _emailService;
 
-        public StripeController(IConfiguration configuration, AppDbContext context, EmailService emailService)
+        public StripeController(IConfiguration configuration, AppDbContext context, IEmailService emailService)
         {
             _configuration = configuration;
             _context = context; 

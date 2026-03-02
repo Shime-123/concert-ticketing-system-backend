@@ -14,9 +14,9 @@ namespace Concert_Backend.Controllers
     {
         private readonly AppDbContext _context;
         private readonly IConfiguration _configuration;
-        private readonly EmailService _emailService;
+        private readonly IEmailService _emailService;
 
-        public WebhookController(AppDbContext context, IConfiguration configuration, EmailService emailService)
+        public WebhookController(AppDbContext context, IConfiguration configuration, IEmailService emailService)
         {
             _context = context;
             _configuration = configuration;

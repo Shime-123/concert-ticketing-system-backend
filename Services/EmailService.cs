@@ -37,13 +37,13 @@ public async Task SendEmailAsync(string toEmail, string subject, string htmlCont
     using var smtp = new SmtpClient();
     
     // FIX: Hardcode "smtp.gmail.com" here instead of reading from _config
-    await smtp.ConnectAsync("smtp.gmail.com", 587, MailKit.Security.SecureSocketOptions.StartTls);
+    await smtp.ConnectAsync(_config["EmailSettings:Host"], 587, SecureSocketOptions.StartTls);
     
     // FIX: Use "EmailPass" to match your appsettings.json
-    await smtp.AuthenticateAsync(
-        _config["EmailSettings:EmailUser"], 
-        _config["EmailSettings:EmailPass"]
-    );
+await smtp.AuthenticateAsync(
+    _config["EmailSettings:EmailUser"]!, 
+    _config["EmailSettings:EmailPass"]!
+);
     
     await smtp.SendAsync(email);
     await smtp.DisconnectAsync(true);
@@ -121,7 +121,7 @@ public async Task SendEmailAsync(string toEmail, string subject, string htmlCont
             email.Body = builder.ToMessageBody();
 
             using var smtp = new SmtpClient();
-            await smtp.ConnectAsync(_config["EmailSettings:EmailHost"], 587, SecureSocketOptions.StartTls);
+            await smtp.ConnectAsync(_config["EmailSettings:Host"], 587, SecureSocketOptions.StartTls);
             await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
             await smtp.SendAsync(email);
             await smtp.DisconnectAsync(true);

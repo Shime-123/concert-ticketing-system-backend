@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("concert-backend")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d22503adb853f5ce2cde2f45afe01a2ba60a01e6")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b78d7af4dff77241ba2f1d93cc85cb06e7120886")]
 [assembly: System.Reflection.AssemblyProductAttribute("concert-backend")]
 [assembly: System.Reflection.AssemblyTitleAttribute("concert-backend")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
