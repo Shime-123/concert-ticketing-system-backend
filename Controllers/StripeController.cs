@@ -85,13 +85,15 @@ namespace Concert_Backend.Controllers
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
+                CreatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc)
+
                 var purchase = new Purchase
                 {
                     PaymentId = session.Id,
                     UserEmail = session.CustomerDetails?.Email ?? request.UserEmail,
                     TicketType = session.Metadata["ticketType"],
                     Quantity = int.Parse(session.Metadata["quantity"]),
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = utcNow
                 };
                 _context.Purchases.Add(purchase);
 
