@@ -114,7 +114,16 @@ namespace Concert_Backend.Controllers
                 await transaction.CommitAsync();
 
                 Console.WriteLine("✅ Database Saved. Triggering email...");
-                _ = SendBackgroundEmail(purchase, ticket, session);
+                try 
+{
+    Console.WriteLine("📧 Starting synchronous email test...");
+    await SendBackgroundEmail(purchase, ticket, session); 
+    Console.WriteLine("📧 Task returned to Controller.");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"📧 CRITICAL EMAIL ERROR: {ex.Message}");
+}
 
                 return Ok(new { message = "Success" });
             }
