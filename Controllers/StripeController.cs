@@ -61,33 +61,35 @@ namespace Concert_Backend.Controllers
 [HttpPost("finalize")]
 public async Task<IActionResult> FinalizePurchase([FromBody] FinalizeRequest request)
 {
-    // ... (your existing validation and session fetch)
+    // ... (Keep your existing validation and session fetch code here) ...
 
     using var transaction = await _context.Database.BeginTransactionAsync();
     try
     {
-        // ... (your existing purchase/ticket creation)
+        // 1. Your existing logic to create/find 'purchase' and 'ticket'
+        // Ensure these variables are defined here...
 
         await _context.SaveChangesAsync();
         await transaction.CommitAsync();
 
         Console.WriteLine("✅ Database Saved. Triggering email...");
 
-        // FIX: Start the background task without awaiting it
-        // We pass the data explicitly so it doesn't need the Controller anymore
+        // 2. CAPTURE the data into local variables to avoid "context" errors
+        var email = purchase.UserEmail;
+        var name = ticket.CustomerName;
+        var type = purchase.TicketType;
+        var qty = purchase.Quantity;
+        var tId = ticket.TicketId.ToString();
+        var artist = session.Metadata.ContainsKey("concertTitle") ? session.Metadata["concertTitle"] : "Concert";
+        var venue = session.Metadata.ContainsKey("venue") ? session.Metadata["venue"] : "Venue";
+
+        // 3. FIRE AND FORGET (Background Task)
         _ = Task.Run(async () => {
             try 
             {
-                await _emailService.SendTicketEmailAsync(
-                    purchase.UserEmail,
-                    ticket.CustomerName,
-                    purchase.TicketType,
-                    purchase.Quantity,
-                    ticket.TicketId.ToString(),
-                    session.Metadata["concertTitle"],
-                    session.Metadata["venue"]
-                );
-                Console.WriteLine("📧 EMAIL SENT SUCCESSFULLY.");
+                // Use the LOCAL captured variables here
+                await _emailService.SendTicketEmailAsync(email, name, type, qty, tId, artist, venue);
+                Console.WriteLine($"📧 BACKGROUND EMAIL SENT TO: {email}");
             }
             catch (Exception mailEx)
             {
@@ -99,8 +101,10 @@ public async Task<IActionResult> FinalizePurchase([FromBody] FinalizeRequest req
     }
     catch (Exception ex)
     {
-        await transaction.RollbackAsync();
-        return StatusCode(500, ex.Message);
+        if (_context.Database.CurrentTransaction != null)
+            await transaction.RollbackAsync();
+            
+        return StatusCode(500, new { message = ex.Message });
     }
 }
 
