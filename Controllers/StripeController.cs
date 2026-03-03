@@ -58,74 +58,51 @@ namespace Concert_Backend.Controllers
             return Ok(new { url = session.Url });
         }
 
-        [HttpPost("finalize")]
-        public async Task<IActionResult> FinalizePurchase([FromBody] FinalizeRequest request)
-        {
-            if (string.IsNullOrEmpty(request.SessionId)) return BadRequest("Missing Session ID");
+[HttpPost("finalize")]
+public async Task<IActionResult> FinalizePurchase([FromBody] FinalizeRequest request)
+{
+    // ... (your existing validation and session fetch)
 
-            var service = new SessionService();
-            var session = await service.GetAsync(request.SessionId);
+    using var transaction = await _context.Database.BeginTransactionAsync();
+    try
+    {
+        // ... (your existing purchase/ticket creation)
 
-            // 1. Check if record already exists (idempotency check)
-            var existingPurchase = await _context.Purchases.FirstOrDefaultAsync(p => p.PaymentId == session.Id);
-            var existingTicket = await _context.Tickets.FirstOrDefaultAsync(t => t.PaymentId == session.Id);
+        await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
 
-            if (existingPurchase != null && existingTicket != null)
+        Console.WriteLine("✅ Database Saved. Triggering email...");
+
+        // FIX: Start the background task without awaiting it
+        // We pass the data explicitly so it doesn't need the Controller anymore
+        _ = Task.Run(async () => {
+            try 
             {
-                Console.WriteLine("♻️ Record already exists. Re-triggering email...");
-                _ = SendBackgroundEmail(existingPurchase, existingTicket, session);
-                return Ok(new { message = "Success (Already Processed)" });
+                await _emailService.SendTicketEmailAsync(
+                    purchase.UserEmail,
+                    ticket.CustomerName,
+                    purchase.TicketType,
+                    purchase.Quantity,
+                    ticket.TicketId.ToString(),
+                    session.Metadata["concertTitle"],
+                    session.Metadata["venue"]
+                );
+                Console.WriteLine("📧 EMAIL SENT SUCCESSFULLY.");
             }
-
-            // 2. Parse Metadata
-            session.Metadata.TryGetValue("concertId", out var cIdStr);
-            int.TryParse(cIdStr, out int concertId);
-
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
+            catch (Exception mailEx)
             {
-                // ✅ FIX: Properly define the UTC time for PostgreSQL
-                var utcNow = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
-
-                var purchase = new Purchase
-                {
-                    PaymentId = session.Id,
-                    UserEmail = session.CustomerDetails?.Email ?? request.UserEmail,
-                    TicketType = session.Metadata["ticketType"],
-                    Quantity = int.Parse(session.Metadata["quantity"]),
-                    CreatedAt = utcNow // Assigned correctly
-                };
-                _context.Purchases.Add(purchase);
-
-                var ticket = new Ticket
-                {
-                    TicketId = Guid.NewGuid(),
-                    PaymentId = session.Id,
-                    CustomerName = session.CustomerDetails?.Name ?? request.UserName,
-                    Price = (decimal)((session.AmountTotal ?? 0) / 100.0),
-                    Status = "Valid",
-                    ConcertId = concertId
-                    // If your Ticket model has a 'Date' field, add it here:
-                    // CreatedAt = utcNow
-                };
-                _context.Tickets.Add(ticket);
-
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                Console.WriteLine("✅ Database Saved. Triggering email...");
-                _ = SendBackgroundEmail(purchase, ticket, session);
-
-                return Ok(new { message = "Success" });
+                Console.WriteLine($"❌ BACKGROUND EMAIL FAILED: {mailEx.Message}");
             }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                Console.WriteLine($"❌ DATABASE ERROR: {ex.Message}");
-                // Returning the actual inner exception helps debug if it's still a Date issue
-                return StatusCode(500, ex.InnerException?.Message ?? ex.Message);
-            }
-        }
+        });
+
+        return Ok(new { message = "Success" });
+    }
+    catch (Exception ex)
+    {
+        await transaction.RollbackAsync();
+        return StatusCode(500, ex.Message);
+    }
+}
 
         private async Task SendBackgroundEmail(Purchase purchase, Ticket ticket, Session session)
         {
