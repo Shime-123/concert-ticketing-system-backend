@@ -33,14 +33,21 @@ namespace Concert_Backend.Services
             var builder = new BodyBuilder { HtmlBody = htmlContent };
             email.Body = builder.ToMessageBody();
 
-            using var smtp = new SmtpClient();
-            // Added explicit timeout of 10 seconds
-            smtp.Timeout = 15000; 
-            
-            await smtp.ConnectAsync(_config["EmailSettings:Host"], 587, SecureSocketOptions.StartTls);
-            await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
-            await smtp.SendAsync(email);
-            await smtp.DisconnectAsync(true);
+using var smtp = new SmtpClient();
+
+// 1. Increase timeout to 30 seconds for the first connection
+smtp.Timeout = 30000; 
+
+
+smtp.ServerCertificateValidationCallback = (s, c, h, e) => true;
+
+await smtp.ConnectAsync(_config["EmailSettings:Host"], 587, SecureSocketOptions.StartTls);
+await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
+
+await smtp.SendAsync(email);
+Console.WriteLine("📧 EMAIL SENT SUCCESSFULLY TO: " + toEmail);
+
+await smtp.DisconnectAsync(true);
         }
 
         public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue)
