@@ -21,9 +21,9 @@ public async Task<IActionResult> GetMyTickets([FromQuery] string email)
 {
     if (string.IsNullOrEmpty(email)) return BadRequest("Email required");
 
+    // We join the Ticket table with Purchases to get the TicketType saved during checkout
     var tickets = await _context.Tickets
         .Include(t => t.Concert)
-        // Link to Purchase table to verify ownership via Email
         .Where(t => _context.Purchases.Any(p => p.PaymentId == t.PaymentId && p.UserEmail == email))
         .Select(t => new {
             t.TicketId,
@@ -34,7 +34,16 @@ public async Task<IActionResult> GetMyTickets([FromQuery] string email)
             ConcertTitle = t.Concert.ConcertTitle, 
             Venue = t.Concert.Venue,
             Date = t.Concert.Date.ToString("MMM dd, yyyy"),
-            Time = t.Concert.Date.ToString("hh:mm tt")
+            Time = t.Concert.Date.ToString("hh:mm tt"),
+            // 🚀 THE KEY ADDITION: Get the type and quantity from the related Purchase
+            TicketType = _context.Purchases
+                .Where(p => p.PaymentId == t.PaymentId)
+                .Select(p => p.TicketType)
+                .FirstOrDefault() ?? "Regular",
+            Quantity = _context.Purchases
+                .Where(p => p.PaymentId == t.PaymentId)
+                .Select(p => p.Quantity)
+                .FirstOrDefault()
         })
         .ToListAsync();
 
