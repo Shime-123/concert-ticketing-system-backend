@@ -66,26 +66,26 @@ namespace Concert_Backend.Controllers
             var service = new SessionService();
             var session = await service.GetAsync(request.SessionId);
 
-            // 1. Check if record already exists (saved by Webhook)
+            // 1. Check if record already exists (idempotency check)
             var existingPurchase = await _context.Purchases.FirstOrDefaultAsync(p => p.PaymentId == session.Id);
             var existingTicket = await _context.Tickets.FirstOrDefaultAsync(t => t.PaymentId == session.Id);
 
             if (existingPurchase != null && existingTicket != null)
             {
-                // ✅ Record exists! Trigger email in background and return success immediately
-                Console.WriteLine("♻️ Webhook already saved data. Re-triggering email background task...");
+                Console.WriteLine("♻️ Record already exists. Re-triggering email...");
                 _ = SendBackgroundEmail(existingPurchase, existingTicket, session);
-                return Ok(new { message = "Success (Processed via Webhook)" });
+                return Ok(new { message = "Success (Already Processed)" });
             }
 
-            // 2. If record doesn't exist, save it now
+            // 2. Parse Metadata
             session.Metadata.TryGetValue("concertId", out var cIdStr);
             int.TryParse(cIdStr, out int concertId);
 
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                CreatedAt = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc)
+                // ✅ FIX: Properly define the UTC time for PostgreSQL
+                var utcNow = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
 
                 var purchase = new Purchase
                 {
@@ -93,7 +93,7 @@ namespace Concert_Backend.Controllers
                     UserEmail = session.CustomerDetails?.Email ?? request.UserEmail,
                     TicketType = session.Metadata["ticketType"],
                     Quantity = int.Parse(session.Metadata["quantity"]),
-                    CreatedAt = utcNow
+                    CreatedAt = utcNow // Assigned correctly
                 };
                 _context.Purchases.Add(purchase);
 
@@ -105,13 +105,15 @@ namespace Concert_Backend.Controllers
                     Price = (decimal)((session.AmountTotal ?? 0) / 100.0),
                     Status = "Valid",
                     ConcertId = concertId
+                    // If your Ticket model has a 'Date' field, add it here:
+                    // CreatedAt = utcNow
                 };
                 _context.Tickets.Add(ticket);
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                Console.WriteLine("✅ Database Saved. Triggering email background task...");
+                Console.WriteLine("✅ Database Saved. Triggering email...");
                 _ = SendBackgroundEmail(purchase, ticket, session);
 
                 return Ok(new { message = "Success" });
@@ -120,17 +122,15 @@ namespace Concert_Backend.Controllers
             {
                 await transaction.RollbackAsync();
                 Console.WriteLine($"❌ DATABASE ERROR: {ex.Message}");
-                return StatusCode(500, ex.Message);
+                // Returning the actual inner exception helps debug if it's still a Date issue
+                return StatusCode(500, ex.InnerException?.Message ?? ex.Message);
             }
         }
 
-        // Helper method for "Fire and Forget" email sending
         private async Task SendBackgroundEmail(Purchase purchase, Ticket ticket, Session session)
         {
             try 
             {
-                Console.WriteLine($"📧 ATTEMPTING EMAIL TO: {purchase.UserEmail}");
-                
                 await _emailService.SendTicketEmailAsync(
                     purchase.UserEmail,
                     ticket.CustomerName,
@@ -140,16 +140,16 @@ namespace Concert_Backend.Controllers
                     session.Metadata["concertTitle"],
                     session.Metadata["venue"]
                 );
-
                 Console.WriteLine("📧 EMAIL SENT SUCCESSFULLY.");
             }
             catch (Exception mailEx)
             {
-                Console.WriteLine($"❌ EMAIL BACKGROUND TASK FAILED: {mailEx.Message}");
+                Console.WriteLine($"❌ EMAIL FAILED: {mailEx.Message}");
             }
         }
     }
 
+    // DTOs remain the same
     public class CheckoutRequest
     {
         public string PriceId { get; set; } = string.Empty;
