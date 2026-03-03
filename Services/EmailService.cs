@@ -35,7 +35,7 @@ namespace Concert_Backend.Services
 
             using var smtp = new SmtpClient();
             // Added explicit timeout of 10 seconds
-            smtp.Timeout = 10000; 
+            smtp.Timeout = 20000; 
             
             await smtp.ConnectAsync(_config["EmailSettings:Host"], 587, SecureSocketOptions.StartTls);
             await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
