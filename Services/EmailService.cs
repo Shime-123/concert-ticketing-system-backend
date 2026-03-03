@@ -2,12 +2,10 @@ using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using QRCoder;
-using MailKit.Net.Smtp;
-using MailKit.Security;
-using MimeKit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Hosting;
 using System.IO;
+using System.Net.Http.Json;
 
 namespace Concert_Backend.Services
 {
@@ -15,126 +13,114 @@ namespace Concert_Backend.Services
     {
         private readonly IConfiguration _config;
         private readonly IWebHostEnvironment _env;
+        private readonly HttpClient _httpClient;
 
         public EmailService(IConfiguration config, IWebHostEnvironment env)
         {
             _config = config;
             _env = env;
+            _httpClient = new HttpClient();
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
         public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
         {
-            var email = new MimeMessage();
-            email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]));
-            email.To.Add(MailboxAddress.Parse(toEmail));
-            email.Subject = subject;
+            var apiKey = _config["EmailSettings:ApiKey"]; // You need to add this to Render
+            var senderEmail = _config["EmailSettings:EmailUser"];
 
-            var builder = new BodyBuilder { HtmlBody = htmlContent };
-            email.Body = builder.ToMessageBody();
+            var payload = new
+            {
+                sender = new { name = "Ethio Concert", email = senderEmail },
+                to = new[] { new { email = toEmail } },
+                subject = subject,
+                htmlContent = htmlContent
+            };
 
-using var smtp = new SmtpClient();
+            _httpClient.DefaultRequestHeaders.Clear();
+            _httpClient.DefaultRequestHeaders.Add("api-key", apiKey);
 
-// 1. Increase timeout to 30 seconds for the first connection
-smtp.Timeout = 30000; 
+            var response = await _httpClient.PostAsJsonAsync("https://api.brevo.com/v3/smtp/email", payload);
 
-
-smtp.ServerCertificateValidationCallback = (s, c, h, e) => true;
-
-await smtp.ConnectAsync(_config["EmailSettings:Host"], 465, SecureSocketOptions.StartTls);
-await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
-
-await smtp.SendAsync(email);
-Console.WriteLine("📧 EMAIL SENT SUCCESSFULLY TO: " + toEmail);
-
-await smtp.DisconnectAsync(true);
+            if (response.IsSuccessStatusCode)
+                Console.WriteLine("📧 API Reset Email Sent to: " + toEmail);
+            else
+                Console.WriteLine("❌ API Email Failed: " + await response.Content.ReadAsStringAsync());
         }
 
         public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue)
         {
-            // 1. Generate QR Code
+            // 1. Generate QR & PDF (Same as your logic)
             using QRCodeGenerator qrGenerator = new QRCodeGenerator();
             using QRCodeData qrCodeData = qrGenerator.CreateQrCode(ticketId, QRCodeGenerator.ECCLevel.Q);
             using PngByteQRCode qrCode = new PngByteQRCode(qrCodeData);
             byte[] qrCodeImage = qrCode.GetGraphic(20);
 
-            // 2. Path for background image - Added safety check
             string imageName = artist.ToLower().Contains("teddy") ? "teddy afro.jpg" : "artist.jpg";
-            // Ensure path works on Linux (Render)
             string bgPath = Path.Combine(_env.ContentRootPath, "assets", imageName);
 
-            // 3. Generate PDF
             byte[] pdfBytes = Document.Create(container =>
             {
                 container.Page(page =>
                 {
                     page.Size(new PageSize(500, 300));
                     page.Margin(0);
-                    page.Background().Layers(layers =>
-                    {
-                        // Safely check for background image
-                        if (File.Exists(bgPath)) 
-                        {
-                            layers.PrimaryLayer().Image(bgPath).FitArea();
-                        }
-                        else 
-                        {
-                            layers.PrimaryLayer().Background(Colors.Black);
-                        }
+                    page.Background().Layers(layers => {
+                        if (File.Exists(bgPath)) layers.PrimaryLayer().Image(bgPath).FitArea();
+                        else layers.PrimaryLayer().Background(Colors.Black);
                         layers.Layer().Background("#CC000000"); 
                     });
-
-                    page.Content().Padding(10).Row(row =>
-                    {
-                        row.RelativeItem(3).Padding(15).Column(col =>
-                        {
+                    page.Content().Padding(10).Row(row => {
+                        row.RelativeItem(3).Padding(15).Column(col => {
                             col.Item().Text(artist.ToUpper()).FontSize(24).ExtraBold().FontColor(Colors.White);
                             col.Item().Text($"{venue} • {DateTime.Now:MMMM dd, yyyy}").FontSize(9).FontColor(Colors.Cyan.Lighten3);
                             col.Spacing(10);
-                            col.Item().Table(table =>
-                            {
+                            col.Item().Table(table => {
                                 table.ColumnsDefinition(c => { c.ConstantColumn(60); c.RelativeColumn(); });
-                                void AddRow(string label, string value) {
-                                    table.Cell().PaddingVertical(1).Text(label).FontColor(Colors.Grey.Lighten2).FontSize(9).Bold();
-                                    table.Cell().PaddingVertical(1).Text(value).FontColor(Colors.White).FontSize(9);
+                                void AddRow(string l, string v) {
+                                    table.Cell().Text(l).FontColor(Colors.Grey.Lighten2).FontSize(9).Bold();
+                                    table.Cell().Text(v).FontColor(Colors.White).FontSize(9);
                                 }
-                                AddRow("Ticket ID:", ticketId.Length > 15 ? ticketId.Substring(0, 15) : ticketId);
+                                AddRow("ID:", ticketId.Length > 15 ? ticketId.Substring(0, 15) : ticketId);
                                 AddRow("Name:", customerName);
                                 AddRow("Type:", ticketType);
                                 AddRow("Qty:", qty.ToString());
                             });
                         });
-
-                        row.RelativeItem(1.5f).Padding(10).Column(col =>
-                        {
+                        row.RelativeItem(1.5f).Padding(10).Column(col => {
                             col.Item().AlignCenter().MaxWidth(90).Image(qrCodeImage);
-                            col.Item().PaddingTop(5).AlignCenter().Text("Scan to verify").FontSize(7).FontColor(Colors.Grey.Lighten1);
                             col.Item().AlignBottom().AlignCenter().Background(Colors.Yellow.Medium).PaddingHorizontal(8).Text(ticketType.ToUpper()).FontSize(10).Black().Bold();
                         });
                     });
                 });
             }).GeneratePdf();
 
-            // 4. Send Email
-            var email = new MimeMessage();
-            email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]!));
-            email.To.Add(MailboxAddress.Parse(toEmail));
-            email.Subject = $"Your Ticket for {artist}";
+            // 2. Send via API with Attachment
+            var apiKey = _config["EmailSettings:ApiKey"];
+            var senderEmail = _config["EmailSettings:EmailUser"];
 
-            var builder = new BodyBuilder 
-            { 
-                HtmlBody = $"<h3>Hello {customerName}</h3><p>Your ticket for {artist} at {venue} is attached.</p>" 
+            var payload = new
+            {
+                sender = new { name = "Ethio Concert", email = senderEmail },
+                to = new[] { new { email = toEmail } },
+                subject = $"Your Ticket for {artist}",
+                htmlContent = $"<h3>Hello {customerName}</h3><p>Your ticket is attached.</p>",
+                attachment = new[] {
+                    new { 
+                        content = Convert.ToBase64String(pdfBytes), 
+                        name = "Ticket.pdf" 
+                    }
+                }
             };
-            builder.Attachments.Add("Ticket.pdf", pdfBytes, ContentType.Parse("application/pdf"));
-            email.Body = builder.ToMessageBody();
 
-            using var smtp = new SmtpClient();
-            smtp.Timeout = 15000; // 15 second timeout for ticket emails
+            _httpClient.DefaultRequestHeaders.Clear();
+            _httpClient.DefaultRequestHeaders.Add("api-key", apiKey);
+
+            var response = await _httpClient.PostAsJsonAsync("https://api.brevo.com/v3/smtp/email", payload);
             
-            await smtp.ConnectAsync(_config["EmailSettings:Host"], 2525, SecureSocketOptions.StartTls);
-            await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
-            await smtp.SendAsync(email);
-            await smtp.DisconnectAsync(true);
+            if (response.IsSuccessStatusCode)
+                Console.WriteLine("📧 API Ticket Sent to: " + toEmail);
+            else
+                Console.WriteLine("❌ API Ticket Failed: " + await response.Content.ReadAsStringAsync());
         }
     }
 }
