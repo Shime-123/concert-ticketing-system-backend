@@ -58,55 +58,74 @@ namespace Concert_Backend.Controllers
             return Ok(new { url = session.Url });
         }
 
-[HttpPost("finalize")]
-public async Task<IActionResult> FinalizePurchase([FromBody] FinalizeRequest request)
-{
-    // ... (Keep your existing validation and session fetch code here) ...
+        [HttpPost("finalize")]
+        public async Task<IActionResult> FinalizePurchase([FromBody] FinalizeRequest request)
+        {
+            if (string.IsNullOrEmpty(request.SessionId)) return BadRequest("Missing Session ID");
 
-    using var transaction = await _context.Database.BeginTransactionAsync();
-    try
-    {
-        // 1. Your existing logic to create/find 'purchase' and 'ticket'
-        // Ensure these variables are defined here...
+            var service = new SessionService();
+            var session = await service.GetAsync(request.SessionId);
 
-        await _context.SaveChangesAsync();
-        await transaction.CommitAsync();
+            // 1. Check if record already exists (idempotency check)
+            var existingPurchase = await _context.Purchases.FirstOrDefaultAsync(p => p.PaymentId == session.Id);
+            var existingTicket = await _context.Tickets.FirstOrDefaultAsync(t => t.PaymentId == session.Id);
 
-        Console.WriteLine("✅ Database Saved. Triggering email...");
-
-        // 2. CAPTURE the data into local variables to avoid "context" errors
-        var email = purchase.UserEmail;
-        var name = ticket.CustomerName;
-        var type = purchase.TicketType;
-        var qty = purchase.Quantity;
-        var tId = ticket.TicketId.ToString();
-        var artist = session.Metadata.ContainsKey("concertTitle") ? session.Metadata["concertTitle"] : "Concert";
-        var venue = session.Metadata.ContainsKey("venue") ? session.Metadata["venue"] : "Venue";
-
-        // 3. FIRE AND FORGET (Background Task)
-        _ = Task.Run(async () => {
-            try 
+            if (existingPurchase != null && existingTicket != null)
             {
-                // Use the LOCAL captured variables here
-                await _emailService.SendTicketEmailAsync(email, name, type, qty, tId, artist, venue);
-                Console.WriteLine($"📧 BACKGROUND EMAIL SENT TO: {email}");
+                Console.WriteLine("♻️ Record already exists. Re-triggering email...");
+                _ = SendBackgroundEmail(existingPurchase, existingTicket, session);
+                return Ok(new { message = "Success (Already Processed)" });
             }
-            catch (Exception mailEx)
-            {
-                Console.WriteLine($"❌ BACKGROUND EMAIL FAILED: {mailEx.Message}");
-            }
-        });
 
-        return Ok(new { message = "Success" });
-    }
-    catch (Exception ex)
-    {
-        if (_context.Database.CurrentTransaction != null)
-            await transaction.RollbackAsync();
-            
-        return StatusCode(500, new { message = ex.Message });
-    }
-}
+            // 2. Parse Metadata
+            session.Metadata.TryGetValue("concertId", out var cIdStr);
+            int.TryParse(cIdStr, out int concertId);
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // ✅ FIX: Properly define the UTC time for PostgreSQL
+                var utcNow = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
+
+                var purchase = new Purchase
+                {
+                    PaymentId = session.Id,
+                    UserEmail = session.CustomerDetails?.Email ?? request.UserEmail,
+                    TicketType = session.Metadata["ticketType"],
+                    Quantity = int.Parse(session.Metadata["quantity"]),
+                    CreatedAt = utcNow // Assigned correctly
+                };
+                _context.Purchases.Add(purchase);
+
+                var ticket = new Ticket
+                {
+                    TicketId = Guid.NewGuid(),
+                    PaymentId = session.Id,
+                    CustomerName = session.CustomerDetails?.Name ?? request.UserName,
+                    Price = (decimal)((session.AmountTotal ?? 0) / 100.0),
+                    Status = "Valid",
+                    ConcertId = concertId
+                    // If your Ticket model has a 'Date' field, add it here:
+                    // CreatedAt = utcNow
+                };
+                _context.Tickets.Add(ticket);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                Console.WriteLine("✅ Database Saved. Triggering email...");
+                _ = SendBackgroundEmail(purchase, ticket, session);
+
+                return Ok(new { message = "Success" });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                Console.WriteLine($"❌ DATABASE ERROR: {ex.Message}");
+                // Returning the actual inner exception helps debug if it's still a Date issue
+                return StatusCode(500, ex.InnerException?.Message ?? ex.Message);
+            }
+        }
 
         private async Task SendBackgroundEmail(Purchase purchase, Ticket ticket, Session session)
         {

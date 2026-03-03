@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
 using Concert_Backend.Data;
 using Concert_Backend.Models;
+// 1. Ensure this points to your Services folder
 using Concert_Backend.Services; 
 using Microsoft.EntityFrameworkCore;
+// 2. Fixed BCrypt using statement
 using BCrypt.Net; 
 
 namespace Concert_Backend.Controllers
@@ -25,6 +27,7 @@ namespace Concert_Backend.Controllers
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
 
+            // Use the full path to avoid namespace confusion
             if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {
                 return Unauthorized(new { message = "Invalid email or password" });
@@ -45,24 +48,15 @@ namespace Concert_Backend.Controllers
 
             string code = new Random().Next(100000, 999999).ToString();
             
-            // ✅ FIX: Use UTC for PostgreSQL compatibility
             user.ResetCode = code;
-            user.ResetCodeExpiry = DateTime.SpecifyKind(DateTime.UtcNow.AddMinutes(15), DateTimeKind.Utc);
-            
+            user.ResetCodeExpiry = DateTime.Now.AddMinutes(15);
             await _context.SaveChangesAsync();
 
-            // ✅ FIX: Capture variables locally before the controller context is disposed
-            var userEmail = user.Email;
-
-            _ = Task.Run(async () => {
-                try {
-                    // Changed 'resetCode' to 'code' to match your definition above
-                    await _emailService.SendEmailAsync(userEmail, "Reset Code", $"Your code is: {code}");
-                    Console.WriteLine($"📧 Background reset email sent to {userEmail}");
-                } catch (Exception ex) {
-                    Console.WriteLine("❌ Email background error: " + ex.Message);
-                }
-            });
+            await _emailService.SendEmailAsync(
+                user.Email, 
+                "Your Reset Code - Ethio Concert", 
+                $"Your code is: {code}"
+            );
 
             return Ok(new { message = "Code sent successfully" });
         }
@@ -72,8 +66,7 @@ namespace Concert_Backend.Controllers
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
             
-            // ✅ FIX: Compare using UtcNow
-            if (user == null || user.ResetCode != request.Code || user.ResetCodeExpiry < DateTime.UtcNow)
+            if (user == null || user.ResetCode != request.Code || user.ResetCodeExpiry < DateTime.Now)
             {
                 return BadRequest(new { message = "Invalid or expired verification code." });
             }
