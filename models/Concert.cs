@@ -8,7 +8,7 @@ namespace Concert_Backend.Models
         public int ConcertId { get; set; }
         public string ConcertTitle { get; set; }
         public string Venue { get; set; }
-        public DateTime Date { get; set; }
+        public DateTime Date { get; set; } = DateTime.UtcNow;
         public string ImageUrl { get; set; }
 
         // New Logic

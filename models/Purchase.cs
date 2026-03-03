@@ -8,7 +8,7 @@ namespace Concert_Backend.Models {
         public string UserEmail { get; set; } = null!;
         public string TicketType { get; set; } = null!;
         public int Quantity { get; set; }
-        public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         [ForeignKey("UserEmail")]
         public User User { get; set; } = null!;
