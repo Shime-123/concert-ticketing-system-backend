@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Hosting;
 using System.IO;
 using System.Net.Http.Json;
+using System.Net.Http;
 
 namespace Concert_Backend.Services
 {
@@ -25,7 +26,7 @@ namespace Concert_Backend.Services
 
         public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
         {
-            var apiKey = _config["EmailSettings:ApiKey"]; // You need to add this to Render
+            var apiKey = _config["EmailSettings:ApiKey"];
             var senderEmail = _config["EmailSettings:EmailUser"];
 
             var payload = new
@@ -42,22 +43,24 @@ namespace Concert_Backend.Services
             var response = await _httpClient.PostAsJsonAsync("https://api.brevo.com/v3/smtp/email", payload);
 
             if (response.IsSuccessStatusCode)
-                Console.WriteLine("📧 API Reset Email Sent to: " + toEmail);
+                Console.WriteLine("✅ API Reset Email Sent to: " + toEmail);
             else
                 Console.WriteLine("❌ API Email Failed: " + await response.Content.ReadAsStringAsync());
         }
 
         public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue)
         {
-            // 1. Generate QR & PDF (Same as your logic)
+            // 1. Generate QR Code
             using QRCodeGenerator qrGenerator = new QRCodeGenerator();
             using QRCodeData qrCodeData = qrGenerator.CreateQrCode(ticketId, QRCodeGenerator.ECCLevel.Q);
             using PngByteQRCode qrCode = new PngByteQRCode(qrCodeData);
             byte[] qrCodeImage = qrCode.GetGraphic(20);
 
+            // 2. Resolve Background Path
             string imageName = artist.ToLower().Contains("teddy") ? "teddy afro.jpg" : "artist.jpg";
             string bgPath = Path.Combine(_env.ContentRootPath, "assets", imageName);
 
+            // 3. Generate PDF
             byte[] pdfBytes = Document.Create(container =>
             {
                 container.Page(page =>
@@ -94,7 +97,7 @@ namespace Concert_Backend.Services
                 });
             }).GeneratePdf();
 
-            // 2. Send via API with Attachment
+            // 4. Send via API with Attachment
             var apiKey = _config["EmailSettings:ApiKey"];
             var senderEmail = _config["EmailSettings:EmailUser"];
 
