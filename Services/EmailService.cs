@@ -7,6 +7,7 @@ using MailKit.Security;
 using MimeKit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Hosting;
+using System.IO;
 
 namespace Concert_Backend.Services
 {
@@ -22,47 +23,40 @@ namespace Concert_Backend.Services
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
-        // --- 1. General Email (For Forgot Password) ---
-public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
-{
-    var email = new MimeMessage();
-    // Use your email from config as the sender
-    email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]));
-    email.To.Add(MailboxAddress.Parse(toEmail));
-    email.Subject = subject;
+        public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
+        {
+            var email = new MimeMessage();
+            email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]));
+            email.To.Add(MailboxAddress.Parse(toEmail));
+            email.Subject = subject;
 
-    var builder = new BodyBuilder { HtmlBody = htmlContent };
-    email.Body = builder.ToMessageBody();
+            var builder = new BodyBuilder { HtmlBody = htmlContent };
+            email.Body = builder.ToMessageBody();
 
-    using var smtp = new SmtpClient();
-    
-    // FIX: Hardcode "smtp.gmail.com" here instead of reading from _config
-    await smtp.ConnectAsync(_config["EmailSettings:Host"], 587, SecureSocketOptions.StartTls);
-    
-    // FIX: Use "EmailPass" to match your appsettings.json
-await smtp.AuthenticateAsync(
-    _config["EmailSettings:EmailUser"]!, 
-    _config["EmailSettings:EmailPass"]!
-);
-    
-    await smtp.SendAsync(email);
-    await smtp.DisconnectAsync(true);
-}
+            using var smtp = new SmtpClient();
+            // Added explicit timeout of 10 seconds
+            smtp.Timeout = 10000; 
+            
+            await smtp.ConnectAsync(_config["EmailSettings:Host"], 587, SecureSocketOptions.StartTls);
+            await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
+            await smtp.SendAsync(email);
+            await smtp.DisconnectAsync(true);
+        }
 
-        // --- 2. Ticket Email (With PDF & QR) ---
         public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue)
         {
-            // Generate QR Code
+            // 1. Generate QR Code
             using QRCodeGenerator qrGenerator = new QRCodeGenerator();
             using QRCodeData qrCodeData = qrGenerator.CreateQrCode(ticketId, QRCodeGenerator.ECCLevel.Q);
             using PngByteQRCode qrCode = new PngByteQRCode(qrCodeData);
             byte[] qrCodeImage = qrCode.GetGraphic(20);
 
-            // Path for background image
+            // 2. Path for background image - Added safety check
             string imageName = artist.ToLower().Contains("teddy") ? "teddy afro.jpg" : "artist.jpg";
+            // Ensure path works on Linux (Render)
             string bgPath = Path.Combine(_env.ContentRootPath, "assets", imageName);
 
-            // Generate PDF using QuestPDF
+            // 3. Generate PDF
             byte[] pdfBytes = Document.Create(container =>
             {
                 container.Page(page =>
@@ -71,8 +65,15 @@ await smtp.AuthenticateAsync(
                     page.Margin(0);
                     page.Background().Layers(layers =>
                     {
-                        if (File.Exists(bgPath)) layers.PrimaryLayer().Image(bgPath).FitArea();
-                        else layers.PrimaryLayer().Background(Colors.Black);
+                        // Safely check for background image
+                        if (File.Exists(bgPath)) 
+                        {
+                            layers.PrimaryLayer().Image(bgPath).FitArea();
+                        }
+                        else 
+                        {
+                            layers.PrimaryLayer().Background(Colors.Black);
+                        }
                         layers.Layer().Background("#CC000000"); 
                     });
 
@@ -107,7 +108,7 @@ await smtp.AuthenticateAsync(
                 });
             }).GeneratePdf();
 
-            // Send via MailKit
+            // 4. Send Email
             var email = new MimeMessage();
             email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]!));
             email.To.Add(MailboxAddress.Parse(toEmail));
@@ -121,6 +122,8 @@ await smtp.AuthenticateAsync(
             email.Body = builder.ToMessageBody();
 
             using var smtp = new SmtpClient();
+            smtp.Timeout = 15000; // 15 second timeout for ticket emails
+            
             await smtp.ConnectAsync(_config["EmailSettings:Host"], 587, SecureSocketOptions.StartTls);
             await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
             await smtp.SendAsync(email);
