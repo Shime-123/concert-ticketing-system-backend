@@ -51,14 +51,15 @@ namespace Concert_Backend.Controllers
             user.ResetCode = code;
             user.ResetCodeExpiry = DateTime.Now.AddMinutes(15);
             await _context.SaveChangesAsync();
+_ = Task.Run(async () => {
+    try {
+        await _emailService.SendEmailAsync(user.Email, "Reset Code", $"Your reset code is: {resetCode}");
+    } catch (Exception ex) {
+        Console.WriteLine("Background Reset Email Failed: " + ex.Message);
+    }
+});
 
-            await _emailService.SendEmailAsync(
-                user.Email, 
-                "Your Reset Code - Ethio Concert", 
-                $"Your code is: {code}"
-            );
-
-            return Ok(new { message = "Code sent successfully" });
+return Ok("If the email exists, a code has been sent.");
         }
 
         [HttpPost("reset-password")]
