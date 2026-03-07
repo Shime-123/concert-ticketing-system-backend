@@ -28,28 +28,22 @@ public async Task SendEmailAsync(string toEmail, string subject, string htmlCont
     try 
     {
         var email = new MimeMessage();
-        // Use the authorized sender email registered in your Brevo account
-        email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]));
+        // Fallback to a hardcoded string if the config is missing
+        string senderEmail = _config["EmailSettings:EmailUser"] ?? "a3d0bd001@smtp-brevo.com";
+        
+        email.From.Add(new MailboxAddress("Ethio Concert", senderEmail));
         email.To.Add(MailboxAddress.Parse(toEmail));
         email.Subject = subject;
-
-        var builder = new BodyBuilder { HtmlBody = htmlContent };
-        email.Body = builder.ToMessageBody();
+        email.Body = new BodyBuilder { HtmlBody = htmlContent }.ToMessageBody();
 
         using var smtp = new SmtpClient();
-        
-        // Brevo specific configurations
-        smtp.Timeout = 15000; 
+        smtp.Timeout = 10000; // 10 seconds
         smtp.CheckCertificateRevocation = false;
-        smtp.ServerCertificateValidationCallback = (s, c, h, e) => true;
 
-        // Connect using Port 587 and StartTls (Standard for Brevo)
-        await smtp.ConnectAsync(
-            _config["EmailSettings:Host"], 
-            587, 
-            SecureSocketOptions.StartTls
-        );
-
+        // HARDCODE THE HOST for testing to bypass environment variable issues
+        await smtp.ConnectAsync("smtp-relay.brevo.com", 587, MailKit.Security.SecureSocketOptions.StartTls);
+        
+        // Authenticate using the password from your environment
         await smtp.AuthenticateAsync(
             _config["EmailSettings:EmailUser"]!, 
             _config["EmailSettings:EmailPass"]!
@@ -57,14 +51,11 @@ public async Task SendEmailAsync(string toEmail, string subject, string htmlCont
         
         await smtp.SendAsync(email);
         await smtp.DisconnectAsync(true);
-        
-        Console.WriteLine($"📧 BREVO EMAIL SENT SUCCESSFULLY TO: {toEmail}");
+        Console.WriteLine("📧 SUCCESS: Brevo sent the email!");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"❌ BREVO EMAIL ERROR: {ex.Message}");
-        if (ex.InnerException != null)
-            Console.WriteLine($"Inner Exception: {ex.InnerException.Message}");
+        Console.WriteLine($"❌ SMTP ERROR: {ex.Message}");
     }
 }
 
