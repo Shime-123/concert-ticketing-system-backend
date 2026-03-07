@@ -128,23 +128,25 @@ public async Task SendTicketEmailAsync(string toEmail, string customerName, stri
             {
                 new 
                 {
-                    content = Convert.ToBase64String(pdfBytes), // PDF converted to Base64
+                    content = Convert.ToBase64String(pdfBytes), // Convert PDF to Base64 string
                     name = "Ticket.pdf"
                 }
             }
         };
 
         var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        
+        // This sends the email over HTTPS (Port 443), which Render does not block
         var response = await client.PostAsync("https://api.brevo.com/v3/smtp/email", content);
 
         if (response.IsSuccessStatusCode)
         {
-            Console.WriteLine("🚀 TICKET SENT SUCCESSFULLY VIA API TO: " + toEmail);
+            Console.WriteLine("🚀 TICKET API SUCCESS: Email sent to " + toEmail);
         }
         else
         {
-            var error = await response.Content.ReadAsStringAsync();
-            Console.WriteLine($"❌ TICKET API ERROR: {error}");
+            var errorDetails = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"❌ TICKET API REJECTION: {errorDetails}");
         }
     }
     catch (Exception ex)
