@@ -28,26 +28,16 @@ public async Task SendEmailAsync(string toEmail, string subject, string htmlCont
     try 
     {
         var email = new MimeMessage();
-        // Fallback to a hardcoded string if the config is missing
-        string senderEmail = _config["EmailSettings:EmailUser"] ?? "a3d0bd001@smtp-brevo.com";
-        
-        email.From.Add(new MailboxAddress("Ethio Concert", senderEmail));
+        email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]));
         email.To.Add(MailboxAddress.Parse(toEmail));
         email.Subject = subject;
         email.Body = new BodyBuilder { HtmlBody = htmlContent }.ToMessageBody();
 
         using var smtp = new SmtpClient();
-        smtp.Timeout = 10000; // 10 seconds
-        smtp.CheckCertificateRevocation = false;
-
-        // HARDCODE THE HOST for testing to bypass environment variable issues
-await smtp.ConnectAsync(
-    _config["EmailSettings:Host"], 
-    587, 
-    SecureSocketOptions.SslOnConnect
-);
-
-        // Authenticate using the password from your environment
+        
+        // Port 2525 is the "hidden" port for cloud servers like Render
+        await smtp.ConnectAsync("smtp-relay.brevo.com", 2525, MailKit.Security.SecureSocketOptions.StartTls);
+        
         await smtp.AuthenticateAsync(
             _config["EmailSettings:EmailUser"]!, 
             _config["EmailSettings:EmailPass"]!
@@ -55,11 +45,11 @@ await smtp.ConnectAsync(
         
         await smtp.SendAsync(email);
         await smtp.DisconnectAsync(true);
-        Console.WriteLine("📧 SUCCESS: Brevo sent the email!");
+        Console.WriteLine("✅ REAL EMAIL SENT TO USER: " + toEmail);
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"❌ SMTP ERROR: {ex.Message}");
+        Console.WriteLine($"❌ SMTP STILL BLOCKED: {ex.Message}");
     }
 }
 
