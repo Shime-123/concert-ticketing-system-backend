@@ -8,6 +8,9 @@ using MimeKit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Hosting;
 using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 
 namespace Concert_Backend.Services
 {
@@ -23,36 +26,41 @@ namespace Concert_Backend.Services
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
+
 public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
 {
     try 
     {
-        var email = new MimeMessage();
-        email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]));
-        email.To.Add(MailboxAddress.Parse(toEmail));
-        email.Subject = subject;
-        email.Body = new BodyBuilder { HtmlBody = htmlContent }.ToMessageBody();
+        using var client = new HttpClient();
+        // Use your Brevo API Key (the 'xsmtpsib...' one)
+        client.DefaultRequestHeaders.Add("api-key", _config["EmailSettings:EmailPass"]); 
 
-        using var smtp = new SmtpClient();
+        // This object matches exactly what Brevo's API expects
+        var payload = new
+        {
+            sender = new { name = "Ethio Concert", email = "shimelisgetachew11@gmail.com" }, // Verified Sender
+            to = new[] { new { email = toEmail } }, // The User (e.g. shimelisgetachew59)
+            subject = subject,
+            htmlContent = htmlContent
+        };
+
+        var json = JsonSerializer.Serialize(payload);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync("https://api.brevo.com/v3/smtp/email", content);
         
-        // Port 2525 is the "hidden" port for cloud servers like Render
-        await smtp.ConnectAsync("smtp-relay.brevo.com", 2525, MailKit.Security.SecureSocketOptions.StartTls);
-        
-        await smtp.AuthenticateAsync(
-            _config["EmailSettings:EmailUser"]!, 
-            _config["EmailSettings:EmailPass"]!
-        );
-        
-        await smtp.SendAsync(email);
-        await smtp.DisconnectAsync(true);
-        Console.WriteLine("✅ REAL EMAIL SENT TO USER: " + toEmail);
+        if (response.IsSuccessStatusCode) {
+            Console.WriteLine($"🚀 API SUCCESS: Email sent to {toEmail} via Brevo API.");
+        } else {
+            string error = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"❌ API REJECTION: {error}");
+        }
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"❌ SMTP STILL BLOCKED: {ex.Message}");
+        Console.WriteLine($"❌ SYSTEM ERROR: {ex.Message}");
     }
 }
-
         public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue)
         {
             try
