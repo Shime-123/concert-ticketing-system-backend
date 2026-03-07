@@ -54,20 +54,43 @@ namespace Concert_Backend.Services
             try
             {
                 // 1. Get the Background Image (From Web or Local)
-                byte[] bgImageBytes = null;
-                if (!string.IsNullOrEmpty(imageUrl))
-                {
-                    if (imageUrl.StartsWith("http"))
-                    {
-                        using var client = _httpClientFactory.CreateClient();
-                        bgImageBytes = await client.GetByteArrayAsync(imageUrl);
-                    }
-                    else
-                    {
-                        string localPath = Path.Combine(_env.ContentRootPath, imageUrl.TrimStart('/'));
-                        if (File.Exists(localPath)) bgImageBytes = await File.ReadAllBytesAsync(localPath);
-                    }
-                }
+                // 1. Get the Background Image (With Debugging)
+       byte[] bgImageBytes = null;
+       try 
+         {
+         if (!string.IsNullOrEmpty(imageUrl))
+        {
+        if (imageUrl.StartsWith("http"))
+        {
+            Console.WriteLine($"🌐 Attempting to download external image: {imageUrl}");
+            using var client = _httpClientFactory.CreateClient();
+            // Set a timeout so a slow image doesn't hang the task
+            client.Timeout = TimeSpan.FromSeconds(10); 
+            bgImageBytes = await client.GetByteArrayAsync(imageUrl);
+        }
+        else
+        {
+            // Fix path for Linux (Render) servers
+            string cleanPath = imageUrl.Replace("\\", "/").TrimStart('/');
+            string localPath = Path.Combine(_env.ContentRootPath, cleanPath);
+            
+            Console.WriteLine($"📂 Checking local path: {localPath}");
+            
+            if (File.Exists(localPath)) 
+            {
+                bgImageBytes = await File.ReadAllBytesAsync(localPath);
+            }
+            else 
+            {
+                Console.WriteLine("⚠️ Local file not found at path.");
+            }
+        }
+        }
+        }
+         catch (Exception imgEx)
+        {
+         Console.WriteLine($"❌ IMAGE LOAD ERROR: {imgEx.Message}");
+           }
 
                 // 2. Generate QR Code
                 using QRCodeGenerator qrGenerator = new QRCodeGenerator();
