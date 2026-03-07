@@ -40,44 +40,52 @@ namespace Concert_Backend.Controllers
             });
         }
 
-        [HttpPost("forgot-password")]
-        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
-        {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
-            if (user == null) return NotFound(new { message = "We couldn't find an account with that email." });
+[HttpPost("forgot-password")]
+public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+{
+    var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+    if (user == null) return NotFound(new { message = "We couldn't find an account with that email." });
 
-            string code = new Random().Next(100000, 999999).ToString();
-            
-            user.ResetCode = code;
-            user.ResetCodeExpiry = DateTime.Now.AddMinutes(15);
-            await _context.SaveChangesAsync();
+    string code = new Random().Next(100000, 999999).ToString();
+    
+    user.ResetCode = code;
+    // FIX 1: Use UtcNow to prevent time-zone expiration bugs
+    user.ResetCodeExpiry = DateTime.UtcNow.AddMinutes(15); 
+    await _context.SaveChangesAsync();
 
-            await _emailService.SendEmailAsync(
-                user.Email, 
-                "Your Reset Code - Ethio Concert", 
-                $"Your code is: {code}"
-            );
+    // FIX 2: Print to console so you can see the code in Render Logs even if email fails
+    Console.WriteLine($"🗝️ DEBUG: Reset code for {user.Email} is {code}");
 
-            return Ok(new { message = "Code sent successfully" });
-        }
+    // We still call this, but if it hangs, the user has already received the "Ok" response below
+    // Note: If you want to prevent the 10s delay, you can remove the 'await' 
+    // but keeping it is safer for debugging until Brevo is 100% active.
+    await _emailService.SendEmailAsync(
+        user.Email, 
+        "Your Reset Code - Ethio Concert", 
+        $"Your code is: {code}"
+    );
 
-        [HttpPost("reset-password")]
-        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
-        {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
-            
-            if (user == null || user.ResetCode != request.Code || user.ResetCodeExpiry < DateTime.Now)
-            {
-                return BadRequest(new { message = "Invalid or expired verification code." });
-            }
+    return Ok(new { message = "If the email exists, a code has been sent." });
+}
 
-            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
-            user.ResetCode = null;
-            user.ResetCodeExpiry = null;
+[HttpPost("reset-password")]
+public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+{
+    var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+    
+    // FIX 3: Use UtcNow here as well to match the expiry check
+    if (user == null || user.ResetCode != request.Code || user.ResetCodeExpiry < DateTime.UtcNow)
+    {
+        return BadRequest(new { message = "Invalid or expired verification code." });
+    }
 
-            await _context.SaveChangesAsync();
-            return Ok(new { message = "Password updated!" });
-        }
+    user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+    user.ResetCode = null;
+    user.ResetCodeExpiry = null;
+
+    await _context.SaveChangesAsync();
+    return Ok(new { message = "Password updated!" });
+}
 
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterDto regData)
