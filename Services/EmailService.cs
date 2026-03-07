@@ -23,35 +23,50 @@ namespace Concert_Backend.Services
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
-        public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
-        {
-            try 
-            {
-                var email = new MimeMessage();
-                email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]));
-                email.To.Add(MailboxAddress.Parse(toEmail));
-                email.Subject = subject;
+public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
+{
+    try 
+    {
+        var email = new MimeMessage();
+        // Use the authorized sender email registered in your Brevo account
+        email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]));
+        email.To.Add(MailboxAddress.Parse(toEmail));
+        email.Subject = subject;
 
-                var builder = new BodyBuilder { HtmlBody = htmlContent };
-                email.Body = builder.ToMessageBody();
+        var builder = new BodyBuilder { HtmlBody = htmlContent };
+        email.Body = builder.ToMessageBody();
 
-                using var smtp = new SmtpClient();
-                smtp.Timeout = 20000; 
-                smtp.ServerCertificateValidationCallback = (s, c, h, e) => true;
+        using var smtp = new SmtpClient();
+        
+        // Brevo specific configurations
+        smtp.Timeout = 15000; 
+        smtp.CheckCertificateRevocation = false;
+        smtp.ServerCertificateValidationCallback = (s, c, h, e) => true;
 
-                // FIX: Use SslOnConnect for Port 465
-                await smtp.ConnectAsync(_config["EmailSettings:Host"], 465, SecureSocketOptions.SslOnConnect);
-                await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
-                
-                await smtp.SendAsync(email);
-                await smtp.DisconnectAsync(true);
-                Console.WriteLine("📧 EMAIL SENT SUCCESSFULLY TO: " + toEmail);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"❌ EMAIL CRITICAL ERROR: {ex.Message}");
-            }
-        }
+        // Connect using Port 587 and StartTls (Standard for Brevo)
+        await smtp.ConnectAsync(
+            _config["EmailSettings:Host"], 
+            587, 
+            SecureSocketOptions.StartTls
+        );
+
+        await smtp.AuthenticateAsync(
+            _config["EmailSettings:EmailUser"]!, 
+            _config["EmailSettings:EmailPass"]!
+        );
+        
+        await smtp.SendAsync(email);
+        await smtp.DisconnectAsync(true);
+        
+        Console.WriteLine($"📧 BREVO EMAIL SENT SUCCESSFULLY TO: {toEmail}");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"❌ BREVO EMAIL ERROR: {ex.Message}");
+        if (ex.InnerException != null)
+            Console.WriteLine($"Inner Exception: {ex.InnerException.Message}");
+    }
+}
 
         public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue)
         {
