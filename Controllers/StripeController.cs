@@ -71,15 +71,21 @@ public async Task<IActionResult> FinalizePurchase([FromBody] FinalizeRequest req
     var service = new SessionService();
     var session = await service.GetAsync(request.SessionId);
 
+    // 1. Check if records already exist
     var existingPurchase = await _context.Purchases.FirstOrDefaultAsync(p => p.PaymentId == session.Id);
     var existingTicket = await _context.Tickets.FirstOrDefaultAsync(t => t.PaymentId == session.Id);
 
     if (existingPurchase != null && existingTicket != null)
     {
         Console.WriteLine("♻️ Record already exists. Re-triggering email...");
-        // FIX: Added Task.Run here as well to prevent blocking the response
         _ = Task.Run(() => SendBackgroundEmail(existingPurchase, existingTicket, session));
-        return Ok(new { message = "Success (Already Processed)" });
+        
+        // Return recipient details even for existing records
+        return Ok(new { 
+            message = "Success (Already Processed)", 
+            recipientEmail = existingPurchase.UserEmail, 
+            recipientName = existingTicket.CustomerName 
+        });
     }
 
     session.Metadata.TryGetValue("concertId", out var cIdStr);
@@ -90,16 +96,18 @@ public async Task<IActionResult> FinalizePurchase([FromBody] FinalizeRequest req
     {
         var utcNow = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
 
+        // 2. Create Purchase (Recipient Email from Stripe takes priority)
         var purchase = new Purchase
         {
             PaymentId = session.Id,
             UserEmail = session.CustomerDetails?.Email ?? request.UserEmail,
-            TicketType = session.Metadata["ticketType"],
-            Quantity = int.Parse(session.Metadata["quantity"]),
+            TicketType = session.Metadata.ContainsKey("ticketType") ? session.Metadata["ticketType"] : "Regular",
+            Quantity = int.Parse(session.Metadata.ContainsKey("quantity") ? session.Metadata["quantity"] : "1"),
             CreatedAt = utcNow
         };
         _context.Purchases.Add(purchase);
 
+        // 3. Create Ticket (Recipient Name from Stripe takes priority)
         var ticket = new Ticket
         {
             TicketId = Guid.NewGuid(),
@@ -115,10 +123,14 @@ public async Task<IActionResult> FinalizePurchase([FromBody] FinalizeRequest req
         await transaction.CommitAsync();
 
         Console.WriteLine("✅ Database Saved. Triggering email...");
-        // Pass the actual newly created objects
         _ = Task.Run(() => SendBackgroundEmail(purchase, ticket, session));
 
-        return Ok(new { message = "Success" });
+        // 4. Return the Recipient Details to the Frontend
+        return Ok(new { 
+            message = "Success", 
+            recipientEmail = purchase.UserEmail, 
+            recipientName = ticket.CustomerName 
+        });
     }
     catch (Exception ex)
     {
