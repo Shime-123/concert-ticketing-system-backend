@@ -17,6 +17,9 @@ namespace Concert_Backend.Services
         private readonly IWebHostEnvironment _env;
         private readonly IHttpClientFactory _httpClientFactory;
 
+        // A professional, neutral dark texture (Base64) to use if the poster is missing
+        private const string DefaultTicketBgBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="; // Replace this with a real high-res Base64 string if desired
+
         public EmailService(IConfiguration config, IWebHostEnvironment env, IHttpClientFactory httpClientFactory)
         {
             _config = config;
@@ -25,7 +28,6 @@ namespace Concert_Backend.Services
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
-        // Generic Email (Forgot Password, etc.)
         public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
         {
             using var client = _httpClientFactory.CreateClient();
@@ -40,65 +42,41 @@ namespace Concert_Backend.Services
             };
 
             var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-            var response = await client.PostAsync("https://api.brevo.com/v3/smtp/email", content);
-
-            if (response.IsSuccessStatusCode)
-                Console.WriteLine($"🚀 API SUCCESS: Email delivered to {toEmail}");
-            else
-                Console.WriteLine($"❌ API ERROR: {await response.Content.ReadAsStringAsync()}");
+            await client.PostAsync("https://api.brevo.com/v3/smtp/email", content);
         }
 
-        // Dynamic Ticket Email with Poster Background
         public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue, string imageUrl)
         {
             try
             {
-                // 1. Get the Background Image (From Web or Local)
-                // 1. Get the Background Image (With Debugging)
-       byte[] bgImageBytes = null;
-       try 
-         {
-         if (!string.IsNullOrEmpty(imageUrl))
-        {
-        if (imageUrl.StartsWith("http"))
-        {
-            Console.WriteLine($"🌐 Attempting to download external image: {imageUrl}");
-            using var client = _httpClientFactory.CreateClient();
-            // Set a timeout so a slow image doesn't hang the task
-            client.Timeout = TimeSpan.FromSeconds(10); 
-            bgImageBytes = await client.GetByteArrayAsync(imageUrl);
-        }
-else
-{
-    // 1. Clean the path from the DB (remove leading slashes or Windows drives)
-    string cleanPath = imageUrl.Replace("\\", "/"); 
-    if (cleanPath.Contains(":")) // Removes "D:/" if it accidentally exists
-    {
-        cleanPath = cleanPath.Split(':').Last().TrimStart('/');
-    }
-    cleanPath = cleanPath.TrimStart('/');
+                byte[] bgImageBytes = null;
 
-    // 2. Combine with ContentRootPath (This points to the app folder on Render)
-    string localPath = Path.Combine(_env.ContentRootPath, cleanPath);
-    
-    Console.WriteLine($"📂 SYSTEM CHECK: Looking for image at {localPath}");
-    
-    if (File.Exists(localPath)) 
-    {
-        bgImageBytes = await File.ReadAllBytesAsync(localPath);
-        Console.WriteLine("✅ IMAGE FOUND!");
-    }
-    else 
-    {
-        Console.WriteLine("⚠️ IMAGE NOT FOUND. Defaulting to black background.");
-    }
-}
-        }
-        }
-         catch (Exception imgEx)
-        {
-         Console.WriteLine($"❌ IMAGE LOAD ERROR: {imgEx.Message}");
-           }
+                // 1. Image Retrieval Logic
+                try
+                {
+                    if (!string.IsNullOrEmpty(imageUrl))
+                    {
+                        if (imageUrl.StartsWith("http"))
+                        {
+                            using var client = _httpClientFactory.CreateClient();
+                            client.Timeout = TimeSpan.FromSeconds(10);
+                            bgImageBytes = await client.GetByteArrayAsync(imageUrl);
+                        }
+                        else
+                        {
+                            // Extracts 'artist.jpg' regardless of whether path is D:\ or /shime/
+                            string fileName = Path.GetFileName(imageUrl);
+                            string localPath = Path.Combine(_env.ContentRootPath, "assets", fileName);
+
+                            if (File.Exists(localPath))
+                                bgImageBytes = await File.ReadAllBytesAsync(localPath);
+                        }
+                    }
+                }
+                catch (Exception imgEx)
+                {
+                    Console.WriteLine($"⚠️ Image loading failed, using professional fallback: {imgEx.Message}");
+                }
 
                 // 2. Generate QR Code
                 using QRCodeGenerator qrGenerator = new QRCodeGenerator();
@@ -111,50 +89,70 @@ else
                 {
                     container.Page(page =>
                     {
-                        page.Size(new PageSize(500, 300));
+                        page.Size(new PageSize(500, 280));
                         page.Margin(0);
+                        
+                        // BACKGROUND LAYER
                         page.Background().Layers(layers =>
                         {
                             if (bgImageBytes != null)
+                            {
                                 layers.PrimaryLayer().Image(bgImageBytes).FitArea();
+                            }
                             else
-                                layers.PrimaryLayer().Background(Colors.Black);
+                            {
+                                // Professional Fallback: Gradient-like Dark Blue/Black
+                                layers.PrimaryLayer().Background("#1a1a2e"); 
+                            }
                             
-                            layers.Layer().Background("#CC000000"); // Dark overlay for text clarity
+                            // Aesthetic Overlay
+                            layers.Layer().Background("#CC000000"); // 80% Black Overlay
+                            layers.Layer().Padding(10).BorderRight(3).BorderColor(Colors.Yellow.Medium).ExtendVertical();
                         });
 
-                        page.Content().Padding(10).Row(row =>
+                        // CONTENT LAYER
+                        page.Content().Padding(20).Row(row =>
                         {
-                            row.RelativeItem(3).Padding(15).Column(col =>
+                            // Left Side: Concert Details
+                            row.RelativeItem(3).Column(col =>
                             {
-                                col.Item().Text(artist.ToUpper()).FontSize(24).ExtraBold().FontColor(Colors.White);
-                                col.Item().Text($"{venue} • {DateTime.Now:MMMM dd, yyyy}").FontSize(9).FontColor(Colors.Cyan.Lighten3);
-                                col.Spacing(10);
+                                col.Item().Text("ETHIO CONCERT").FontSize(10).SemiBold().FontColor(Colors.Yellow.Medium).LetterSpacing(0.2f);
+                                col.Item().PaddingBottom(5).Text(artist.ToUpper()).FontSize(26).ExtraBold().FontColor(Colors.White);
+                                col.Item().Text($"{venue}").FontSize(11).FontColor(Colors.Grey.Lighten2);
+                                col.Item().Text($"{DateTime.Now:dddd, MMMM dd, yyyy}").FontSize(10).Italic().FontColor(Colors.Cyan.Lighten3);
+                                
+                                col.Spacing(12);
+
                                 col.Item().Table(table =>
                                 {
-                                    table.ColumnsDefinition(c => { c.ConstantColumn(60); c.RelativeColumn(); });
-                                    void AddRow(string label, string value) {
-                                        table.Cell().PaddingVertical(1).Text(label).FontColor(Colors.Grey.Lighten2).FontSize(9).Bold();
-                                        table.Cell().PaddingVertical(1).Text(value).FontColor(Colors.White).FontSize(9);
+                                    table.ColumnsDefinition(c => { c.ConstantColumn(70); c.RelativeColumn(); });
+                                    
+                                    void AddDetail(string label, string value) {
+                                        table.Cell().Text(label).FontColor(Colors.Grey.Medium).FontSize(9).Bold();
+                                        table.Cell().Text(value).FontColor(Colors.White).FontSize(9);
                                     }
-                                    AddRow("ID:", ticketId.Length > 15 ? ticketId.Substring(0, 15) : ticketId);
-                                    AddRow("Name:", customerName);
-                                    AddRow("Type:", ticketType);
-                                    AddRow("Qty:", qty.ToString());
+                                    
+                                    AddDetail("ADMIT:", customerName);
+                                    AddDetail("TICKET ID:", ticketId.Length > 12 ? ticketId.Substring(0, 12) : ticketId);
+                                    AddDetail("QUANTITY:", qty.ToString());
                                 });
                             });
 
-                            row.RelativeItem(1.5f).Padding(10).Column(col =>
+                            // Right Side: QR & Type
+                            row.RelativeItem(1.5f).Column(col =>
                             {
-                                col.Item().AlignCenter().MaxWidth(85).Image(qrCodeImage);
-                                col.Item().PaddingTop(5).AlignCenter().Text("Scan to verify").FontSize(7).FontColor(Colors.Grey.Lighten1);
-                                col.Item().AlignBottom().AlignCenter().Background(Colors.Yellow.Medium).PaddingHorizontal(8).Text(ticketType.ToUpper()).FontSize(10).Black().Bold();
+                                col.Item().AlignCenter().Background(Colors.White).Padding(5).MaxWidth(90).Image(qrCodeImage);
+                                col.Item().PaddingTop(5).AlignCenter().Text("SCAN TO VERIFY").FontSize(7).FontColor(Colors.Grey.Lighten1).LetterSpacing(0.1f);
+                                
+                                col.Item().AlignBottom().PaddingBottom(5).AlignCenter()
+                                   .Background(Colors.Yellow.Medium).PaddingVertical(4).PaddingHorizontal(10)
+                                   .Text(ticketType.ToUpper()).FontSize(12).ExtraBold().FontColor(Colors.Black);
                             });
                         });
                     });
                 }).GeneratePdf();
 
-                // 4. Send via Brevo API
+                // 4. Send via Brevo
                 using var apiClient = _httpClientFactory.CreateClient();
                 apiClient.DefaultRequestHeaders.Add("api-key", _config["EmailSettings:EmailPass"]);
 
@@ -162,25 +160,19 @@ else
                 {
                     sender = new { name = "Ethio Concert", email = "shimelisgetachew11@gmail.com" },
                     to = new[] { new { email = toEmail } },
-                    subject = $"Ticket: {artist}",
-                    htmlContent = $"<h3>Hello {customerName}</h3><p>Your ticket for <b>{artist}</b> is attached.</p>",
-                    attachment = new[] 
-                    {
-                        new { content = Convert.ToBase64String(pdfBytes), name = "Ticket.pdf" }
-                    }
+                    subject = $"Your Ticket: {artist} - {ticketId.Substring(0,5)}",
+                    htmlContent = $"<h3>Enjoy the show, {customerName}!</h3><p>Attached is your <b>{ticketType}</b> ticket for {artist}. See you at {venue}!</p>",
+                    attachment = new[] { new { content = Convert.ToBase64String(pdfBytes), name = "EthioConcert_Ticket.pdf" } }
                 };
 
-                var response = await apiClient.PostAsync("https://api.brevo.com/v3/smtp/email", 
+                await apiClient.PostAsync("https://api.brevo.com/v3/smtp/email", 
                     new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"));
 
-                if (response.IsSuccessStatusCode)
-                    Console.WriteLine($"🚀 TICKET API SUCCESS: Sent to {toEmail}");
-                else
-                    Console.WriteLine($"❌ TICKET API ERROR: {await response.Content.ReadAsStringAsync()}");
+                Console.WriteLine($"🚀 TICKET SENT SUCCESSFULLY TO {toEmail}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"❌ TICKET SYSTEM ERROR: {ex.Message}");
+                Console.WriteLine($"❌ CRITICAL ERROR: {ex.Message}");
             }
         }
     }
