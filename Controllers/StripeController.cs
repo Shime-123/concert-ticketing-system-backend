@@ -24,109 +24,129 @@ namespace Concert_Backend.Controllers
             StripeConfiguration.ApiKey = _configuration["Stripe:SecretKey"];
         }
 
-        [HttpPost("create-checkout")]
-        public async Task<IActionResult> CreateCheckout([FromBody] CheckoutRequest request)
-        {
-            var domain = "https://concert-ticketing-system-frontend.onrender.com"; 
+[HttpPost("create-checkout")]
+public async Task<IActionResult> CreateCheckout([FromBody] CheckoutRequest request)
+{
+    try 
+    {
+        var domain = "https://concert-ticketing-system-frontend.onrender.com"; 
 
-            var options = new SessionCreateOptions
+        var concert = await _context.Concerts.FindAsync(request.ConcertId);
+        if (concert == null) return NotFound("Concert not found");
+
+        var options = new SessionCreateOptions
+        {
+            PaymentMethodTypes = new List<string> { "card" },
+            LineItems = new List<SessionLineItemOptions>
             {
-                PaymentMethodTypes = new List<string> { "card" },
-                LineItems = new List<SessionLineItemOptions>
+                new SessionLineItemOptions
                 {
-                    new SessionLineItemOptions
-                    {
-                        Price = request.PriceId, 
-                        Quantity = request.Quantity,
-                    },
+                    Price = request.PriceId, 
+                    Quantity = request.Quantity,
                 },
-                Mode = "payment",
-                SuccessUrl = domain + "/success?session_id={CHECKOUT_SESSION_ID}", 
-                CancelUrl = domain + "/cancel",
-                Metadata = new Dictionary<string, string>
-                {
-                    { "concertId", request.ConcertId.ToString() },
-                    { "ticketType", request.TicketType },
-                    { "imageUrl", concert.ImageUrl },
-                    { "quantity", request.Quantity.ToString() },
-                    { "concertTitle", request.ConcertTitle },
-                    { "venue", request.Venue }
-                }
-            };
+            },
+            Mode = "payment",
+            SuccessUrl = domain + "/success?session_id={CHECKOUT_SESSION_ID}", 
+            CancelUrl = domain + "/cancel",
+            Metadata = new Dictionary<string, string>
+            {
+                { "concertId", request.ConcertId.ToString() },
+                { "ticketType", request.TicketType },
+                { "imageUrl", concert.ImageUrl ?? "" }, 
+                { "quantity", request.Quantity.ToString() },
+                { "concertTitle", request.ConcertTitle ?? "Concert" },
+                { "venue", request.Venue ?? "Venue" }
+            }
+        };
 
-            var service = new SessionService();
-            Session session = await service.CreateAsync(options);
-            return Ok(new { url = session.Url });
-        }
+        var service = new SessionService();
+        Session session = await service.CreateAsync(options);
+        return Ok(new { url = session.Url });
+    }
+    catch (Exception ex)
+    {
+        // This line is key! It will show the REAL error in Render logs
+        Console.WriteLine($"STRIPE ERROR: {ex.Message}"); 
+        return StatusCode(500, new { error = ex.Message });
+    }
+}
 
-        [HttpPost("finalize")]
-        public async Task<IActionResult> FinalizePurchase([FromBody] FinalizeRequest request)
+[HttpPost("finalize")]
+public async Task<IActionResult> FinalizePurchase([FromBody] FinalizeRequest request)
+{
+    if (string.IsNullOrEmpty(request.SessionId)) return BadRequest("Missing Session ID");
+
+    var service = new SessionService();
+    var session = await service.GetAsync(request.SessionId);
+
+    // 1. Check if records already exist
+    var existingPurchase = await _context.Purchases.FirstOrDefaultAsync(p => p.PaymentId == session.Id);
+    var existingTicket = await _context.Tickets.FirstOrDefaultAsync(t => t.PaymentId == session.Id);
+
+    if (existingPurchase != null && existingTicket != null)
+    {
+        Console.WriteLine("♻️ Record already exists. Re-triggering email...");
+        _ = Task.Run(() => SendBackgroundEmail(existingPurchase, existingTicket, session));
+        
+        // Return recipient details even for existing records
+        return Ok(new { 
+            message = "Success (Already Processed)", 
+            recipientEmail = existingPurchase.UserEmail, 
+            recipientName = existingTicket.CustomerName 
+        });
+    }
+
+    session.Metadata.TryGetValue("concertId", out var cIdStr);
+    int.TryParse(cIdStr, out int concertId);
+
+    using var transaction = await _context.Database.BeginTransactionAsync();
+    try
+    {
+        var utcNow = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
+
+        // 2. Create Purchase (Recipient Email from Stripe takes priority)
+        var purchase = new Purchase
         {
-            if (string.IsNullOrEmpty(request.SessionId)) return BadRequest("Missing Session ID");
+            PaymentId = session.Id,
+            UserEmail = session.CustomerDetails?.Email ?? request.UserEmail,
+            TicketType = session.Metadata.ContainsKey("ticketType") ? session.Metadata["ticketType"] : "Regular",
+            Quantity = int.Parse(session.Metadata.ContainsKey("quantity") ? session.Metadata["quantity"] : "1"),
+            CreatedAt = utcNow
+        };
+        _context.Purchases.Add(purchase);
 
-            var service = new SessionService();
-            var session = await service.GetAsync(request.SessionId);
+        // 3. Create Ticket (Recipient Name from Stripe takes priority)
+        var ticket = new Ticket
+        {
+            TicketId = Guid.NewGuid(),
+            PaymentId = session.Id,
+            CustomerName = session.CustomerDetails?.Name ?? request.UserName,
+            Price = (decimal)((session.AmountTotal ?? 0) / 100.0),
+            Status = "Valid",
+            ConcertId = concertId
+        };
+        _context.Tickets.Add(ticket);
 
-            // 1. Check if record already exists (idempotency check)
-            var existingPurchase = await _context.Purchases.FirstOrDefaultAsync(p => p.PaymentId == session.Id);
-            var existingTicket = await _context.Tickets.FirstOrDefaultAsync(t => t.PaymentId == session.Id);
+        await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
 
-            if (existingPurchase != null && existingTicket != null)
-            {
-                Console.WriteLine("♻️ Record already exists. Re-triggering email...");
-                _ = SendBackgroundEmail(existingPurchase, existingTicket, session);
-                return Ok(new { message = "Success (Already Processed)" });
-            }
+        Console.WriteLine("✅ Database Saved. Triggering email...");
+        _ = Task.Run(() => SendBackgroundEmail(purchase, ticket, session));
 
-            // 2. Parse Metadata
-            session.Metadata.TryGetValue("concertId", out var cIdStr);
-            int.TryParse(cIdStr, out int concertId);
-
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                // ✅ FIX: Properly define the UTC time for PostgreSQL
-                var utcNow = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
-
-                var purchase = new Purchase
-                {
-                    PaymentId = session.Id,
-                    UserEmail = session.CustomerDetails?.Email ?? request.UserEmail,
-                    TicketType = session.Metadata["ticketType"],
-                    Quantity = int.Parse(session.Metadata["quantity"]),
-                    CreatedAt = utcNow // Assigned correctly
-                };
-                _context.Purchases.Add(purchase);
-
-                var ticket = new Ticket
-                {
-                    TicketId = Guid.NewGuid(),
-                    PaymentId = session.Id,
-                    CustomerName = session.CustomerDetails?.Name ?? request.UserName,
-                    Price = (decimal)((session.AmountTotal ?? 0) / 100.0),
-                    Status = "Valid",
-                    ConcertId = concertId
-                    // If your Ticket model has a 'Date' field, add it here:
-                    // CreatedAt = utcNow
-                };
-                _context.Tickets.Add(ticket);
-
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                Console.WriteLine("✅ Database Saved. Triggering email...");
-                _ = Task.Run(() => SendBackgroundEmail(existingPurchase, existingTicket, session));
-
-                return Ok(new { message = "Success" });
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                Console.WriteLine($"❌ DATABASE ERROR: {ex.Message}");
-                // Returning the actual inner exception helps debug if it's still a Date issue
-                return StatusCode(500, ex.InnerException?.Message ?? ex.Message);
-            }
-        }
+        // 4. Return the Recipient Details to the Frontend
+        return Ok(new { 
+            message = "Success", 
+            recipientEmail = purchase.UserEmail, 
+            recipientName = ticket.CustomerName 
+        });
+    }
+    catch (Exception ex)
+    {
+        await transaction.RollbackAsync();
+        Console.WriteLine($"❌ DATABASE ERROR: {ex.Message}");
+        return StatusCode(500, ex.InnerException?.Message ?? ex.Message);
+    }
+}
         
 private async Task SendBackgroundEmail(Purchase purchase, Ticket ticket, Session session)
 {
