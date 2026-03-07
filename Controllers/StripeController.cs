@@ -114,7 +114,7 @@ namespace Concert_Backend.Controllers
                 await transaction.CommitAsync();
 
                 Console.WriteLine("✅ Database Saved. Triggering email...");
-                _ = SendBackgroundEmail(purchase, ticket, session);
+                _ = Task.Run(() => SendBackgroundEmail(existingPurchase, existingTicket, session));
 
                 return Ok(new { message = "Success" });
             }
@@ -126,7 +126,7 @@ namespace Concert_Backend.Controllers
                 return StatusCode(500, ex.InnerException?.Message ?? ex.Message);
             }
         }
-
+        
         private async Task SendBackgroundEmail(Purchase purchase, Ticket ticket, Session session)
         {
             try 
