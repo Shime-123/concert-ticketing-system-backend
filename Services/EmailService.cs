@@ -23,32 +23,40 @@ namespace Concert_Backend.Services
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
-        public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
-        {
-            var email = new MimeMessage();
-            email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]));
-            email.To.Add(MailboxAddress.Parse(toEmail));
-            email.Subject = subject;
+public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
+{
+    try 
+    {
+        var email = new MimeMessage();
+        email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]));
+        email.To.Add(MailboxAddress.Parse(toEmail));
+        email.Subject = subject;
 
-            var builder = new BodyBuilder { HtmlBody = htmlContent };
-            email.Body = builder.ToMessageBody();
+        var builder = new BodyBuilder { HtmlBody = htmlContent };
+        email.Body = builder.ToMessageBody();
 
-using var smtp = new SmtpClient();
+        using var smtp = new SmtpClient();
+        smtp.Timeout = 20000; // 20 seconds is usually enough
 
-// 1. Increase timeout to 30 seconds for the first connection
-smtp.Timeout = 30000; 
+        // Bypass certificate validation (useful for some mail servers)
+        smtp.ServerCertificateValidationCallback = (s, c, h, e) => true;
 
-
-smtp.ServerCertificateValidationCallback = (s, c, h, e) => true;
-
-await smtp.ConnectAsync(_config["EmailSettings:Host"], 587, SecureSocketOptions.StartTls);
-await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
-
-await smtp.SendAsync(email);
-Console.WriteLine("📧 EMAIL SENT SUCCESSFULLY TO: " + toEmail);
-
-await smtp.DisconnectAsync(true);
-        }
+        // TRY PORT 465 instead of 587
+        await smtp.ConnectAsync(_config["EmailSettings:Host"], 465, SecureSocketOptions.SslOnConnect);
+        await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
+        
+        await smtp.SendAsync(email);
+        await smtp.DisconnectAsync(true);
+        Console.WriteLine("📧 EMAIL SENT SUCCESSFULLY TO: " + toEmail);
+    }
+    catch (Exception ex)
+    {
+        // This will show exactly WHY it failed in the Render logs
+        Console.WriteLine($"❌ EMAIL CRITICAL ERROR: {ex.Message}");
+        if (ex.InnerException != null) 
+            Console.WriteLine($"Inner Exception: {ex.InnerException.Message}");
+    }
+}
 
         public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue)
         {
