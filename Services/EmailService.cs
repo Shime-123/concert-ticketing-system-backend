@@ -23,126 +23,127 @@ namespace Concert_Backend.Services
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
-public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
-{
-    try 
-    {
-        var email = new MimeMessage();
-        email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]));
-        email.To.Add(MailboxAddress.Parse(toEmail));
-        email.Subject = subject;
+        public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
+        {
+            try 
+            {
+                var email = new MimeMessage();
+                email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]));
+                email.To.Add(MailboxAddress.Parse(toEmail));
+                email.Subject = subject;
 
-        var builder = new BodyBuilder { HtmlBody = htmlContent };
-        email.Body = builder.ToMessageBody();
+                var builder = new BodyBuilder { HtmlBody = htmlContent };
+                email.Body = builder.ToMessageBody();
 
-        using var smtp = new SmtpClient();
-        smtp.Timeout = 20000; // 20 seconds is usually enough
+                using var smtp = new SmtpClient();
+                smtp.Timeout = 20000; 
+                smtp.ServerCertificateValidationCallback = (s, c, h, e) => true;
 
-        // Bypass certificate validation (useful for some mail servers)
-        smtp.ServerCertificateValidationCallback = (s, c, h, e) => true;
-
-        // TRY PORT 465 instead of 587
-        await smtp.ConnectAsync(_config["EmailSettings:Host"], 465, SecureSocketOptions.SslOnConnect);
-        await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
-        
-        await smtp.SendAsync(email);
-        await smtp.DisconnectAsync(true);
-        Console.WriteLine("📧 EMAIL SENT SUCCESSFULLY TO: " + toEmail);
-    }
-    catch (Exception ex)
-    {
-        // This will show exactly WHY it failed in the Render logs
-        Console.WriteLine($"❌ EMAIL CRITICAL ERROR: {ex.Message}");
-        if (ex.InnerException != null) 
-            Console.WriteLine($"Inner Exception: {ex.InnerException.Message}");
-    }
-}
+                // FIX: Use SslOnConnect for Port 465
+                await smtp.ConnectAsync(_config["EmailSettings:Host"], 465, SecureSocketOptions.SslOnConnect);
+                await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
+                
+                await smtp.SendAsync(email);
+                await smtp.DisconnectAsync(true);
+                Console.WriteLine("📧 EMAIL SENT SUCCESSFULLY TO: " + toEmail);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ EMAIL CRITICAL ERROR: {ex.Message}");
+            }
+        }
 
         public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue)
         {
-            // 1. Generate QR Code
-            using QRCodeGenerator qrGenerator = new QRCodeGenerator();
-            using QRCodeData qrCodeData = qrGenerator.CreateQrCode(ticketId, QRCodeGenerator.ECCLevel.Q);
-            using PngByteQRCode qrCode = new PngByteQRCode(qrCodeData);
-            byte[] qrCodeImage = qrCode.GetGraphic(20);
-
-            // 2. Path for background image - Added safety check
-            string imageName = artist.ToLower().Contains("teddy") ? "teddy afro.jpg" : "artist.jpg";
-            // Ensure path works on Linux (Render)
-            string bgPath = Path.Combine(_env.ContentRootPath, "assets", imageName);
-
-            // 3. Generate PDF
-            byte[] pdfBytes = Document.Create(container =>
+            try
             {
-                container.Page(page =>
-                {
-                    page.Size(new PageSize(500, 300));
-                    page.Margin(0);
-                    page.Background().Layers(layers =>
-                    {
-                        // Safely check for background image
-                        if (File.Exists(bgPath)) 
-                        {
-                            layers.PrimaryLayer().Image(bgPath).FitArea();
-                        }
-                        else 
-                        {
-                            layers.PrimaryLayer().Background(Colors.Black);
-                        }
-                        layers.Layer().Background("#CC000000"); 
-                    });
+                // 1. Generate QR Code
+                using QRCodeGenerator qrGenerator = new QRCodeGenerator();
+                using QRCodeData qrCodeData = qrGenerator.CreateQrCode(ticketId, QRCodeGenerator.ECCLevel.Q);
+                using PngByteQRCode qrCode = new PngByteQRCode(qrCodeData);
+                byte[] qrCodeImage = qrCode.GetGraphic(20);
 
-                    page.Content().Padding(10).Row(row =>
+                // 2. Path for background image
+                string imageName = artist.ToLower().Contains("teddy") ? "teddy afro.jpg" : "artist.jpg";
+                string bgPath = Path.Combine(_env.ContentRootPath, "assets", imageName);
+
+                // 3. Generate PDF
+                byte[] pdfBytes = Document.Create(container =>
+                {
+                    container.Page(page =>
                     {
-                        row.RelativeItem(3).Padding(15).Column(col =>
+                        page.Size(new PageSize(500, 300));
+                        page.Margin(0);
+                        page.Background().Layers(layers =>
                         {
-                            col.Item().Text(artist.ToUpper()).FontSize(24).ExtraBold().FontColor(Colors.White);
-                            col.Item().Text($"{venue} • {DateTime.Now:MMMM dd, yyyy}").FontSize(9).FontColor(Colors.Cyan.Lighten3);
-                            col.Spacing(10);
-                            col.Item().Table(table =>
+                            if (File.Exists(bgPath)) 
+                                layers.PrimaryLayer().Image(bgPath).FitArea();
+                            else 
+                                layers.PrimaryLayer().Background(Colors.Black);
+                            
+                            layers.Layer().Background("#CC000000"); 
+                        });
+
+                        page.Content().Padding(10).Row(row =>
+                        {
+                            row.RelativeItem(3).Padding(15).Column(col =>
                             {
-                                table.ColumnsDefinition(c => { c.ConstantColumn(60); c.RelativeColumn(); });
-                                void AddRow(string label, string value) {
-                                    table.Cell().PaddingVertical(1).Text(label).FontColor(Colors.Grey.Lighten2).FontSize(9).Bold();
-                                    table.Cell().PaddingVertical(1).Text(value).FontColor(Colors.White).FontSize(9);
-                                }
-                                AddRow("Ticket ID:", ticketId.Length > 15 ? ticketId.Substring(0, 15) : ticketId);
-                                AddRow("Name:", customerName);
-                                AddRow("Type:", ticketType);
-                                AddRow("Qty:", qty.ToString());
+                                col.Item().Text(artist.ToUpper()).FontSize(24).ExtraBold().FontColor(Colors.White);
+                                col.Item().Text($"{venue} • {DateTime.Now:MMMM dd, yyyy}").FontSize(9).FontColor(Colors.Cyan.Lighten3);
+                                col.Spacing(10);
+                                col.Item().Table(table =>
+                                {
+                                    table.ColumnsDefinition(c => { c.ConstantColumn(60); c.RelativeColumn(); });
+                                    void AddRow(string label, string value) {
+                                        table.Cell().PaddingVertical(1).Text(label).FontColor(Colors.Grey.Lighten2).FontSize(9).Bold();
+                                        table.Cell().PaddingVertical(1).Text(value).FontColor(Colors.White).FontSize(9);
+                                    }
+                                    AddRow("Ticket ID:", ticketId.Length > 15 ? ticketId.Substring(0, 15) : ticketId);
+                                    AddRow("Name:", customerName);
+                                    AddRow("Type:", ticketType);
+                                    AddRow("Qty:", qty.ToString());
+                                });
+                            });
+
+                            row.RelativeItem(1.5f).Padding(10).Column(col =>
+                            {
+                                col.Item().AlignCenter().MaxWidth(90).Image(qrCodeImage);
+                                col.Item().PaddingTop(5).AlignCenter().Text("Scan to verify").FontSize(7).FontColor(Colors.Grey.Lighten1);
+                                col.Item().AlignBottom().AlignCenter().Background(Colors.Yellow.Medium).PaddingHorizontal(8).Text(ticketType.ToUpper()).FontSize(10).Black().Bold();
                             });
                         });
-
-                        row.RelativeItem(1.5f).Padding(10).Column(col =>
-                        {
-                            col.Item().AlignCenter().MaxWidth(90).Image(qrCodeImage);
-                            col.Item().PaddingTop(5).AlignCenter().Text("Scan to verify").FontSize(7).FontColor(Colors.Grey.Lighten1);
-                            col.Item().AlignBottom().AlignCenter().Background(Colors.Yellow.Medium).PaddingHorizontal(8).Text(ticketType.ToUpper()).FontSize(10).Black().Bold();
-                        });
                     });
-                });
-            }).GeneratePdf();
+                }).GeneratePdf();
 
-            // 4. Send Email
-            var email = new MimeMessage();
-            email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]!));
-            email.To.Add(MailboxAddress.Parse(toEmail));
-            email.Subject = $"Your Ticket for {artist}";
+                // 4. Send Email
+                var email = new MimeMessage();
+                email.From.Add(new MailboxAddress("Ethio Concert", _config["EmailSettings:EmailUser"]!));
+                email.To.Add(MailboxAddress.Parse(toEmail));
+                email.Subject = $"Your Ticket for {artist}";
 
-            var builder = new BodyBuilder 
-            { 
-                HtmlBody = $"<h3>Hello {customerName}</h3><p>Your ticket for {artist} at {venue} is attached.</p>" 
-            };
-            builder.Attachments.Add("Ticket.pdf", pdfBytes, ContentType.Parse("application/pdf"));
-            email.Body = builder.ToMessageBody();
+                var builder = new BodyBuilder 
+                { 
+                    HtmlBody = $"<h3>Hello {customerName}</h3><p>Your ticket for {artist} at {venue} is attached.</p>" 
+                };
+                builder.Attachments.Add("Ticket.pdf", pdfBytes, ContentType.Parse("application/pdf"));
+                email.Body = builder.ToMessageBody();
 
-            using var smtp = new SmtpClient();
-            smtp.Timeout = 15000; // 15 second timeout for ticket emails
-            
-            await smtp.ConnectAsync(_config["EmailSettings:Host"], 465, SecureSocketOptions.StartTls);
-            await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
-            await smtp.SendAsync(email);
-            await smtp.DisconnectAsync(true);
+                using var smtp = new SmtpClient();
+                smtp.Timeout = 25000; 
+                smtp.ServerCertificateValidationCallback = (s, c, h, e) => true;
+
+                // FIX: Use SslOnConnect for Port 465
+                await smtp.ConnectAsync(_config["EmailSettings:Host"], 465, SecureSocketOptions.SslOnConnect);
+                await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
+                await smtp.SendAsync(email);
+                await smtp.DisconnectAsync(true);
+                
+                Console.WriteLine("📧 TICKET SENT SUCCESSFULLY TO: " + toEmail);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ TICKET EMAIL FAILED: {ex.Message}");
+            }
         }
     }
 }
