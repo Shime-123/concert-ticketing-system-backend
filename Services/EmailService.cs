@@ -29,36 +29,24 @@ namespace Concert_Backend.Services
 
 public async Task SendEmailAsync(string toEmail, string subject, string htmlContent)
 {
-    try 
+    using var client = new HttpClient();
+    client.DefaultRequestHeaders.Add("api-key", _config["EmailSettings:EmailPass"]); // Your API Key
+
+    var payload = new
     {
-        using var client = new HttpClient();
-        // Use your Brevo API Key (the 'xsmtpsib...' one)
-        client.DefaultRequestHeaders.Add("api-key", _config["EmailSettings:EmailPass"]); 
+        sender = new { name = "Ethio Concert", email = "shimelisgetachew11@gmail.com" },
+        to = new[] { new { email = toEmail } },
+        subject = subject,
+        htmlContent = htmlContent
+    };
 
-        // This object matches exactly what Brevo's API expects
-        var payload = new
-        {
-            sender = new { name = "Ethio Concert", email = "shimelisgetachew11@gmail.com" }, // Verified Sender
-            to = new[] { new { email = toEmail } }, // The User (e.g. shimelisgetachew59)
-            subject = subject,
-            htmlContent = htmlContent
-        };
+    var response = await client.PostAsync(
+        "https://api.brevo.com/v3/smtp/email", 
+        new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+    );
 
-        var json = JsonSerializer.Serialize(payload);
-        var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-        var response = await client.PostAsync("https://api.brevo.com/v3/smtp/email", content);
-        
-        if (response.IsSuccessStatusCode) {
-            Console.WriteLine($"🚀 API SUCCESS: Email sent to {toEmail} via Brevo API.");
-        } else {
-            string error = await response.Content.ReadAsStringAsync();
-            Console.WriteLine($"❌ API REJECTION: {error}");
-        }
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"❌ SYSTEM ERROR: {ex.Message}");
+    if (response.IsSuccessStatusCode) {
+        Console.WriteLine("🚀 SENT VIA API - Check your inbox now!");
     }
 }
         public async Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue)
