@@ -1,10 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Concert_Backend.Data;
 using Concert_Backend.Models;
-// 1. Ensure this points to your Services folder
 using Concert_Backend.Services; 
 using Microsoft.EntityFrameworkCore;
-// 2. Fixed BCrypt using statement
 using BCrypt.Net; 
 
 namespace Concert_Backend.Controllers

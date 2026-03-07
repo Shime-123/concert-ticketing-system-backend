@@ -16,7 +16,6 @@ namespace Concert_Backend.Controllers
         }
 
         // GET: api/Concerts
-        // This is what your Home Page and Admin Dashboard call to show the list
         [HttpGet]
         public async Task<IActionResult> GetConcerts()
         {
