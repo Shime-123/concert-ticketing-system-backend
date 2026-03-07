@@ -68,23 +68,31 @@ namespace Concert_Backend.Services
             client.Timeout = TimeSpan.FromSeconds(10); 
             bgImageBytes = await client.GetByteArrayAsync(imageUrl);
         }
-        else
-        {
-            // Fix path for Linux (Render) servers
-            string cleanPath = imageUrl.Replace("\\", "/").TrimStart('/');
-            string localPath = Path.Combine(_env.ContentRootPath, cleanPath);
-            
-            Console.WriteLine($"📂 Checking local path: {localPath}");
-            
-            if (File.Exists(localPath)) 
-            {
-                bgImageBytes = await File.ReadAllBytesAsync(localPath);
-            }
-            else 
-            {
-                Console.WriteLine("⚠️ Local file not found at path.");
-            }
-        }
+else
+{
+    // 1. Clean the path from the DB (remove leading slashes or Windows drives)
+    string cleanPath = imageUrl.Replace("\\", "/"); 
+    if (cleanPath.Contains(":")) // Removes "D:/" if it accidentally exists
+    {
+        cleanPath = cleanPath.Split(':').Last().TrimStart('/');
+    }
+    cleanPath = cleanPath.TrimStart('/');
+
+    // 2. Combine with ContentRootPath (This points to the app folder on Render)
+    string localPath = Path.Combine(_env.ContentRootPath, cleanPath);
+    
+    Console.WriteLine($"📂 SYSTEM CHECK: Looking for image at {localPath}");
+    
+    if (File.Exists(localPath)) 
+    {
+        bgImageBytes = await File.ReadAllBytesAsync(localPath);
+        Console.WriteLine("✅ IMAGE FOUND!");
+    }
+    else 
+    {
+        Console.WriteLine("⚠️ IMAGE NOT FOUND. Defaulting to black background.");
+    }
+}
         }
         }
          catch (Exception imgEx)
