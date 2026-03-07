@@ -41,7 +41,11 @@ public async Task SendEmailAsync(string toEmail, string subject, string htmlCont
         smtp.CheckCertificateRevocation = false;
 
         // HARDCODE THE HOST for testing to bypass environment variable issues
-        await smtp.ConnectAsync("smtp-relay.brevo.com", 587, MailKit.Security.SecureSocketOptions.StartTls);
+await smtp.ConnectAsync(
+    _config["EmailSettings:Host"], 
+    465, 
+    SecureSocketOptions.SslOnConnect
+);
         
         // Authenticate using the password from your environment
         await smtp.AuthenticateAsync(
