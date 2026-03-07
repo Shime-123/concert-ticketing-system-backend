@@ -27,40 +27,48 @@ namespace Concert_Backend.Controllers
 [HttpPost("create-checkout")]
 public async Task<IActionResult> CreateCheckout([FromBody] CheckoutRequest request)
 {
-    var domain = "https://concert-ticketing-system-frontend.onrender.com"; 
-
-    // 1. MUST FETCH THE CONCERT FROM DB TO GET THE IMAGE URL
-    var concert = await _context.Concerts.FindAsync(request.ConcertId);
-    if (concert == null) return NotFound("Concert not found");
-
-    var options = new SessionCreateOptions
+    try 
     {
-        PaymentMethodTypes = new List<string> { "card" },
-        LineItems = new List<SessionLineItemOptions>
-        {
-            new SessionLineItemOptions
-            {
-                Price = request.PriceId, 
-                Quantity = request.Quantity,
-            },
-        },
-        Mode = "payment",
-        SuccessUrl = domain + "/success?session_id={CHECKOUT_SESSION_ID}", 
-        CancelUrl = domain + "/cancel",
-        Metadata = new Dictionary<string, string>
-        {
-            { "concertId", request.ConcertId.ToString() },
-            { "ticketType", request.TicketType },
-            { "imageUrl", concert.ImageUrl }, // Now this works!
-            { "quantity", request.Quantity.ToString() },
-            { "concertTitle", request.ConcertTitle },
-            { "venue", request.Venue }
-        }
-    };
+        var domain = "https://concert-ticketing-system-frontend.onrender.com"; 
 
-    var service = new SessionService();
-    Session session = await service.CreateAsync(options);
-    return Ok(new { url = session.Url });
+        var concert = await _context.Concerts.FindAsync(request.ConcertId);
+        if (concert == null) return NotFound("Concert not found");
+
+        var options = new SessionCreateOptions
+        {
+            PaymentMethodTypes = new List<string> { "card" },
+            LineItems = new List<SessionLineItemOptions>
+            {
+                new SessionLineItemOptions
+                {
+                    Price = request.PriceId, 
+                    Quantity = request.Quantity,
+                },
+            },
+            Mode = "payment",
+            SuccessUrl = domain + "/success?session_id={CHECKOUT_SESSION_ID}", 
+            CancelUrl = domain + "/cancel",
+            Metadata = new Dictionary<string, string>
+            {
+                { "concertId", request.ConcertId.ToString() },
+                { "ticketType", request.TicketType },
+                { "imageUrl", concert.ImageUrl ?? "" }, 
+                { "quantity", request.Quantity.ToString() },
+                { "concertTitle", request.ConcertTitle ?? "Concert" },
+                { "venue", request.Venue ?? "Venue" }
+            }
+        };
+
+        var service = new SessionService();
+        Session session = await service.CreateAsync(options);
+        return Ok(new { url = session.Url });
+    }
+    catch (Exception ex)
+    {
+        // This line is key! It will show the REAL error in Render logs
+        Console.WriteLine($"STRIPE ERROR: {ex.Message}"); 
+        return StatusCode(500, new { error = ex.Message });
+    }
 }
 
 [HttpPost("finalize")]
