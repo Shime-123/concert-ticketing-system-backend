@@ -139,7 +139,7 @@ public async Task SendEmailAsync(string toEmail, string subject, string htmlCont
             using var smtp = new SmtpClient();
             smtp.Timeout = 15000; // 15 second timeout for ticket emails
             
-            await smtp.ConnectAsync(_config["EmailSettings:Host"], 587, SecureSocketOptions.StartTls);
+            await smtp.ConnectAsync(_config["EmailSettings:Host"], 465, SecureSocketOptions.StartTls);
             await smtp.AuthenticateAsync(_config["EmailSettings:EmailUser"]!, _config["EmailSettings:EmailPass"]!);
             await smtp.SendAsync(email);
             await smtp.DisconnectAsync(true);
