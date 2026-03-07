@@ -43,10 +43,10 @@ public async Task SendEmailAsync(string toEmail, string subject, string htmlCont
         // HARDCODE THE HOST for testing to bypass environment variable issues
 await smtp.ConnectAsync(
     _config["EmailSettings:Host"], 
-    465, 
+    587, 
     SecureSocketOptions.SslOnConnect
 );
-        
+
         // Authenticate using the password from your environment
         await smtp.AuthenticateAsync(
             _config["EmailSettings:EmailUser"]!, 
