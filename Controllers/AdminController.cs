@@ -11,143 +11,93 @@ namespace Concert_Backend.Controllers
     public class AdminController : ControllerBase
     {
         private readonly AppDbContext _context;
+        public AdminController(AppDbContext context) { _context = context; }
 
-        public AdminController(AppDbContext context)
+        // --- 0. DASHBOARD STATS (With Backend Pagination) ---
+        [HttpGet("stats")]
+        public async Task<IActionResult> GetDashboardStats([FromQuery] int page = 1)
         {
-            _context = context;
+            try
+            {
+                const int pageSize = 5;
+                var totalRevenue = await _context.Tickets.SumAsync(t => (double?)t.Price) ?? 0;
+                var totalTickets = await _context.Purchases.SumAsync(p => (int?)p.Quantity) ?? 0;
+                var totalPurchasesCount = await _context.Purchases.CountAsync();
+
+                var recentPurchases = await _context.Purchases
+                    .OrderByDescending(p => p.CreatedAt)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(p => new {
+                        p.PaymentId, p.UserEmail, p.TicketType, p.Quantity, p.CreatedAt,
+                        ConcertTitle = _context.Tickets
+                            .Where(t => t.PaymentId == p.PaymentId)
+                            .Select(t => t.Concert.ConcertTitle)
+                            .FirstOrDefault() ?? "Unknown Event"
+                    }).ToListAsync();
+
+                return Ok(new { 
+                    totalRevenue, totalTickets, recentPurchases,
+                    totalPages = (int)Math.Ceiling((double)totalPurchasesCount / pageSize),
+                    currentPage = page
+                });
+            }
+            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
         }
 
-        // --- 1. GET DASHBOARD STATS ---
-[HttpGet("stats")]
-public async Task<IActionResult> GetDashboardStats()
-{
-    try
-    {
-        var totalRevenue = await _context.Tickets.SumAsync(t => (double?)t.Price) ?? 0;
-        var totalTickets = await _context.Purchases.SumAsync(p => (int?)p.Quantity) ?? 0;
+        // --- 1. USER MANAGEMENT LOGIC ---
+        [HttpGet("users")]
+        public async Task<IActionResult> GetAllUsers() => Ok(await _context.Users.Select(u => new { u.Name, u.Email, u.Role, u.IsSuspended }).ToListAsync());
 
-var recentPurchases = await _context.Purchases
-    .OrderByDescending(p => p.CreatedAt)
-    .Take(10)
-    .Select(p => new {
-        p.PaymentId,
-        p.UserEmail,
-        p.TicketType,
-        p.Quantity,
-        p.CreatedAt,
-        // Join with Tickets/Concert to get the Title
-        ConcertTitle = _context.Tickets
-            .Where(t => t.PaymentId == p.PaymentId)
-            .Select(t => t.Concert.ConcertTitle)
-            .FirstOrDefault() ?? "Concert"
-    })
-    .ToListAsync();
+        [HttpPut("toggle-suspension/{email}")]
+        public async Task<IActionResult> ToggleSuspension(string email)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+            if (user == null) return NotFound();
+            user.IsSuspended = !user.IsSuspended;
+            await _context.SaveChangesAsync();
+            return Ok(new { isSuspended = user.IsSuspended });
+        }
 
-        return Ok(new { totalRevenue, totalTickets, recentPurchases });
-    }
-    catch (Exception ex)
-    {
-        return StatusCode(500, new { message = "Stats error", error = ex.Message });
-    }
-}
+        [HttpPut("update-role")]
+        public async Task<IActionResult> UpdateRole([FromBody] RoleUpdateDto data)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == data.Email);
+            if (user == null) return NotFound();
+            user.Role = data.Role;
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "Role updated" });
+        }
 
-        // --- 2. ADD NEW CONCERT ---
+        // --- 2. CONCERT CRUD ---
         [HttpPost("add-concert")]
         public async Task<IActionResult> AddConcert([FromBody] Concert concert)
         {
-            try
-            {
-                if (concert == null) return BadRequest("Invalid concert data");
-
-                _context.Concerts.Add(concert);
-                await _context.SaveChangesAsync();
-                return Ok(new { message = "Concert added successfully!", concert });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Database error", error = ex.Message });
-            }
+            concert.ConcertId = 0;
+            _context.Concerts.Add(concert);
+            await _context.SaveChangesAsync();
+            return Ok(concert);
         }
 
-        // --- 3. DELETE CONCERT ---
+        [HttpPut("update-concert/{id}")]
+        public async Task<IActionResult> UpdateConcert(int id, [FromBody] Concert updated)
+        {
+            var concert = await _context.Concerts.FindAsync(id);
+            if (concert == null) return NotFound();
+            _context.Entry(concert).CurrentValues.SetValues(updated); // Syncs all fields automatically
+            await _context.SaveChangesAsync();
+            return Ok(concert);
+        }
+
         [HttpDelete("delete-concert/{id}")]
         public async Task<IActionResult> DeleteConcert(int id)
         {
-            try
-            {
-                var concert = await _context.Concerts.FindAsync(id);
-                if (concert == null) return NotFound("Concert not found");
-
-                _context.Concerts.Remove(concert);
-                await _context.SaveChangesAsync();
-                return Ok(new { message = "Concert deleted successfully" });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Error deleting concert", error = ex.Message });
-            }
-        }
-
-        // --- 4. EDIT CONCERT (FIXED: Added IsSoldOut & Stripe IDs) ---
-        [HttpPut("update-concert/{id}")]
-        public async Task<IActionResult> UpdateConcert(int id, [FromBody] Concert updatedConcert)
-        {
-            try 
-            {
-                var concert = await _context.Concerts.FindAsync(id);
-                if (concert == null) return NotFound(new { message = "Concert not found" });
-
-                // Map all fields correctly
-                concert.ConcertTitle = updatedConcert.ConcertTitle;
-                concert.Venue = updatedConcert.Venue;
-                concert.Date = updatedConcert.Date;
-                concert.ImageUrl = updatedConcert.ImageUrl;
-                
-                // Pricing
-                concert.RegularPrice = updatedConcert.RegularPrice;
-                concert.VipPrice = updatedConcert.VipPrice;
-
-                // Stripe IDs (Crucial for payment flow)
-                concert.RegularStripeId = updatedConcert.RegularStripeId;
-                concert.VipStripeId = updatedConcert.VipStripeId;
-
-                // SOLD OUT LOGIC (This was the missing piece!)
-                concert.IsSoldOut = updatedConcert.IsSoldOut;
-
-                await _context.SaveChangesAsync();
-                return Ok(new { message = "Updated successfully!", concert });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Update failed", error = ex.Message });
-            }
-        }
-
-        // --- 5. EXPORT REPORT (Backend Version) ---
-        [HttpGet("export")]
-        public async Task<IActionResult> ExportPurchases()
-        {
-            try 
-            {
-                var purchases = await _context.Purchases.OrderByDescending(p => p.CreatedAt).ToListAsync();
-                var csv = new StringBuilder();
-                
-                // Header row
-                csv.AppendLine("PaymentId,UserEmail,TicketType,Quantity,Date");
-
-                foreach (var p in purchases)
-                {
-                    // Using quotes for Email to avoid CSV breaking on special characters
-                    csv.AppendLine($"{p.PaymentId},\"{p.UserEmail}\",{p.TicketType},{p.Quantity},{p.CreatedAt:yyyy-MM-dd HH:mm}");
-                }
-
-                var bytes = Encoding.UTF8.GetBytes(csv.ToString());
-                return File(bytes, "text/csv", $"ConcertSalesReport_{DateTime.Now:yyyyMMdd}.csv");
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Export failed", error = ex.Message });
-            }
+            var concert = await _context.Concerts.FindAsync(id);
+            if (concert == null) return NotFound();
+            _context.Concerts.Remove(concert);
+            await _context.SaveChangesAsync();
+            return Ok();
         }
     }
+    public class RoleUpdateDto { public string Email { get; set; } public string Role { get; set; } }
 }
