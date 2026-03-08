@@ -17,31 +17,33 @@ namespace Concert_Backend.Controllers
             _context = context;
         }
 
-        // --- 1. GET DASHBOARD STATS ---
+// --- 1. GET DASHBOARD STATS ---
 [HttpGet("stats")]
 public async Task<IActionResult> GetDashboardStats()
 {
     try
     {
+        // Calculate totals
         var totalRevenue = await _context.Tickets.SumAsync(t => (double?)t.Price) ?? 0;
         var totalTickets = await _context.Purchases.SumAsync(p => (int?)p.Quantity) ?? 0;
 
-var recentPurchases = await _context.Purchases
-    .OrderByDescending(p => p.CreatedAt)
-    .Take(10)
-    .Select(p => new {
-        p.PaymentId,
-        p.UserEmail,
-        p.TicketType,
-        p.Quantity,
-        p.CreatedAt,
-        // Join with Tickets/Concert to get the Title
-        ConcertTitle = _context.Tickets
-            .Where(t => t.PaymentId == p.PaymentId)
-            .Select(t => t.Concert.ConcertTitle)
-            .FirstOrDefault() ?? "Concert"
-    })
-    .ToListAsync();
+        // Fetch ALL purchases so React pagination/search works on the full set
+        var recentPurchases = await _context.Purchases
+            .OrderByDescending(p => p.CreatedAt)
+            // .Take(10)  <-- REMOVED THIS LINE
+            .Select(p => new {
+                p.PaymentId,
+                p.UserEmail,
+                p.TicketType,
+                p.Quantity,
+                p.CreatedAt,
+                // Join with Tickets/Concert to get the Title
+                ConcertTitle = _context.Tickets
+                    .Where(t => t.PaymentId == p.PaymentId)
+                    .Select(t => t.Concert.ConcertTitle)
+                    .FirstOrDefault() ?? "Concert"
+            })
+            .ToListAsync();
 
         return Ok(new { totalRevenue, totalTickets, recentPurchases });
     }
