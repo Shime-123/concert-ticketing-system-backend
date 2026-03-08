@@ -18,36 +18,52 @@ namespace Concert_Backend.Controllers
         }
 
         // --- 1. GET DASHBOARD STATS ---
-        [HttpGet("stats")]
-        public async Task<IActionResult> GetDashboardStats()
-        {
-            try
-            {
-                var totalRevenue = await _context.Tickets.SumAsync(t => (double?)t.Price) ?? 0;
-                var totalTickets = await _context.Purchases.SumAsync(p => (int?)p.Quantity) ?? 0;
+[HttpGet("stats")]
+public async Task<IActionResult> GetDashboardStats([FromQuery] int page = 1)
+{
+    try
+    {
+        // Settings
+        const int pageSize = 5;
+        
+        // 1. Calculate Overall Totals
+        var totalRevenue = await _context.Tickets.SumAsync(t => (double?)t.Price) ?? 0;
+        var totalTickets = await _context.Purchases.SumAsync(p => (int?)p.Quantity) ?? 0;
 
-                var recentPurchases = await _context.Purchases
-                    .OrderByDescending(p => p.CreatedAt)
-                    .Select(p => new {
-                        p.PaymentId,
-                        p.UserEmail,
-                        p.TicketType,
-                        p.Quantity,
-                        p.CreatedAt,
-                        ConcertTitle = _context.Tickets
-                            .Where(t => t.PaymentId == p.PaymentId)
-                            .Select(t => t.Concert.ConcertTitle)
-                            .FirstOrDefault() ?? "Concert"
-                    })
-                    .ToListAsync();
+        // 2. Count Total Purchases (for frontend pagination buttons)
+        var totalPurchasesCount = await _context.Purchases.CountAsync();
 
-                return Ok(new { totalRevenue, totalTickets, recentPurchases });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Stats error", error = ex.Message });
-            }
-        }
+        // 3. Fetch Paginated Recent Purchases
+        var recentPurchases = await _context.Purchases
+            .OrderByDescending(p => p.CreatedAt)
+            .Skip((page - 1) * pageSize) // Skip previous pages
+            .Take(pageSize)              // Take only 5
+            .Select(p => new {
+                p.PaymentId,
+                p.UserEmail,
+                p.TicketType,
+                p.Quantity,
+                p.CreatedAt,
+                ConcertTitle = _context.Tickets
+                    .Where(t => t.PaymentId == p.PaymentId)
+                    .Select(t => t.Concert.ConcertTitle)
+                    .FirstOrDefault() ?? "Concert"
+            })
+            .ToListAsync();
+
+        return Ok(new { 
+            totalRevenue, 
+            totalTickets, 
+            recentPurchases,
+            totalPages = (int)Math.Ceiling((double)totalPurchasesCount / pageSize),
+            currentPage = page
+        });
+    }
+    catch (Exception ex)
+    {
+        return StatusCode(500, new { message = "Stats error", error = ex.Message });
+    }
+}
 
         // --- 2. USER MANAGEMENT (Crucial for Frontend) ---
         [HttpGet("users")]

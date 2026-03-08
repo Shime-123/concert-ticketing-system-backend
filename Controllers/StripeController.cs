@@ -27,15 +27,34 @@ namespace Concert_Backend.Controllers
 [HttpPost("create-checkout")]
 public async Task<IActionResult> CreateCheckout([FromBody] CheckoutRequest request)
 {
-    var domain = "https://concert-ticketing-system-frontend.onrender.com"; 
+    // 1. THE GATEKEEPER CHECK: Block suspended users
+    if (string.IsNullOrEmpty(request.UserEmail))
+    {
+        return BadRequest("User email is required to process purchase.");
+    }
 
-    // 1. MUST FETCH THE CONCERT FROM DB TO GET THE IMAGE URL
+    var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.UserEmail);
+
+    if (user != null && user.IsSuspended)
+    {
+        // Return 403 Forbidden - This stops the process before Stripe is ever called
+        return StatusCode(403, new { 
+            message = "Your account has been suspended. You are not allowed to purchase tickets." 
+        });
+    }
+
+    // 2. FETCH THE CONCERT FROM DB
     var concert = await _context.Concerts.FindAsync(request.ConcertId);
     if (concert == null) return NotFound("Concert not found");
 
+    var domain = "https://concert-ticketing-system-frontend.onrender.com"; 
+
+    // 3. CONFIGURE STRIPE SESSION
     var options = new SessionCreateOptions
     {
         PaymentMethodTypes = new List<string> { "card" },
+        // Safely pass the user's email to Stripe so it's pre-filled
+        CustomerEmail = request.UserEmail, 
         LineItems = new List<SessionLineItemOptions>
         {
             new SessionLineItemOptions
@@ -51,7 +70,7 @@ public async Task<IActionResult> CreateCheckout([FromBody] CheckoutRequest reque
         {
             { "concertId", request.ConcertId.ToString() },
             { "ticketType", request.TicketType },
-            { "imageUrl", concert.ImageUrl }, // Now this works!
+            { "imageUrl", concert.ImageUrl },
             { "quantity", request.Quantity.ToString() },
             { "concertTitle", request.ConcertTitle },
             { "venue", request.Venue }
@@ -60,6 +79,8 @@ public async Task<IActionResult> CreateCheckout([FromBody] CheckoutRequest reque
 
     var service = new SessionService();
     Session session = await service.CreateAsync(options);
+    
+    // 4. RETURN THE STRIPE URL
     return Ok(new { url = session.Url });
 }
 

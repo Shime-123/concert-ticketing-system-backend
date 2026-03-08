@@ -20,23 +20,51 @@ namespace Concert_Backend.Controllers
             _emailService = emailService;
         }
 
-        [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginDto request)
-        {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+[HttpPost("login")]
+public async Task<IActionResult> Login([FromBody] LoginDto request)
+{
+    var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
 
-            // Use the full path to avoid namespace confusion
-            if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
-            {
-                return Unauthorized(new { message = "Invalid email or password" });
-            }
+    if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+    {
+        return Unauthorized(new { message = "Invalid email or password" });
+    }
 
-            return Ok(new { 
-                name = user.Name, 
-                email = user.Email, 
-                role = user.Role 
-            });
-        }
+    // Return the full user profile including IsSuspended
+    return Ok(new { 
+        name = user.Name, 
+        email = user.Email, 
+        role = user.Role,
+        isSuspended = user.IsSuspended // 🚀 CRITICAL: This fuels your Frontend logic
+    });
+}
+
+[HttpPost("register")]
+public async Task<IActionResult> Register([FromBody] RegisterDto regData)
+{
+    if (await _context.Users.AnyAsync(u => u.Email == regData.Email))
+    {
+        return BadRequest(new { message = "Email already registered" });
+    }
+
+    var newUser = new User 
+    {
+        Name = regData.FullName,
+        Email = regData.Email,
+        PasswordHash = BCrypt.Net.BCrypt.HashPassword(regData.Password), 
+        Role = "Customer",
+        PhoneNumber = regData.Phone,
+        IsSuspended = false // 🚀 Default to active for new users
+    };
+
+    _context.Users.Add(newUser);
+    await _context.SaveChangesAsync();
+
+    return Ok(new { 
+        message = "Registration successful",
+        isSuspended = false 
+    });
+}
 
 [HttpPost("forgot-password")]
 public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
@@ -84,29 +112,6 @@ public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest r
     await _context.SaveChangesAsync();
     return Ok(new { message = "Password updated!" });
 }
-
-        [HttpPost("register")]
-        public async Task<IActionResult> Register([FromBody] RegisterDto regData)
-        {
-            if (await _context.Users.AnyAsync(u => u.Email == regData.Email))
-            {
-                return BadRequest(new { message = "Email already registered" });
-            }
-
-            var newUser = new User 
-            {
-                Name = regData.FullName,
-                Email = regData.Email,
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(regData.Password), 
-                Role = "Customer",
-                PhoneNumber = regData.Phone
-            };
-
-            _context.Users.Add(newUser);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { message = "Registration successful" });
-        }
     }
 
     // --- DTOs ---
