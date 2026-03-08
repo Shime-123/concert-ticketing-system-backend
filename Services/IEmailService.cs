@@ -6,6 +6,6 @@ namespace Concert_Backend.Services
         Task SendEmailAsync(string toEmail, string subject, string htmlContent);
 
         // For sending the PDF Ticket after purchase
-        Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue);
+        Task SendTicketEmailAsync(string toEmail, string customerName, string ticketType, int qty, string ticketId, string artist, string venue ,string imageUrl);
     }
 }
