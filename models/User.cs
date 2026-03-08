@@ -13,5 +13,6 @@ namespace Concert_Backend.Models {
         public ICollection<Purchase> Purchases { get; set; } = new List<Purchase>();
         public string? ResetCode { get; set; }
         public DateTime? ResetCodeExpiry { get; set; }
+        public bool IsSuspended { get; set; } = false;
     }
 }
