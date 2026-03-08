@@ -59,46 +59,23 @@ try
 {
     if (!string.IsNullOrEmpty(imageUrl))
     {
-        if (imageUrl.StartsWith("http"))
-        {
-            // CASE: External URL (e.g., Unsplash)
-            Console.WriteLine($"🌐 Downloading external image: {imageUrl}");
-            using var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(10); 
-            bgImageBytes = await client.GetByteArrayAsync(imageUrl);
-        }
-        else
-        {
-            // CASE: Local Path (e.g., /assets/artist.jpg)
-            // 1. Clean the path (remove leading slashes and fix slashes for Linux)
-            string cleanPath = imageUrl.Replace("\\", "/").TrimStart('/');
+        string finalUrl = imageUrl;
 
-            // 2. IMPORTANT: Render puts your files in a "wwwroot" or the "ContentRoot"
-            // We check both to be safe.
-            string localPath = Path.Combine(_env.WebRootPath ?? _env.ContentRootPath, cleanPath);
-            
-            Console.WriteLine($"📂 SYSTEM CHECK: Looking for image at {localPath}");
-            
-            if (File.Exists(localPath)) 
-            {
-                bgImageBytes = await File.ReadAllBytesAsync(localPath);
-                Console.WriteLine("✅ DYNAMIC IMAGE FOUND!");
-            }
-            else 
-            {
-                // Fallback: If it's not in wwwroot, check the direct ContentRoot
-                string fallbackPath = Path.Combine(_env.ContentRootPath, cleanPath);
-                if (File.Exists(fallbackPath))
-                {
-                    bgImageBytes = await File.ReadAllBytesAsync(fallbackPath);
-                    Console.WriteLine("✅ DYNAMIC IMAGE FOUND IN CONTENTROOT!");
-                }
-                else
-                {
-                    Console.WriteLine($"⚠️ IMAGE NOT FOUND at {localPath} or {fallbackPath}");
-                }
-            }
+        // If the path is local (starts with /assets), turn it into a FULL URL
+        if (!imageUrl.StartsWith("http"))
+        {
+            // We use your LIVE Render URL here so the server "calls itself" to get the image
+            string baseUrl = "https://concert-ticketing-system-backend.onrender.com";
+            finalUrl = $"{baseUrl}/{imageUrl.TrimStart('/')}";
+            Console.WriteLine($"🔗 Converting local path to Full URL: {finalUrl}");
         }
+
+        // Now we download it exactly like an Unsplash URL
+        using var client = _httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(10); 
+        bgImageBytes = await client.GetByteArrayAsync(finalUrl);
+        
+        Console.WriteLine("✅ IMAGE SUCCESSFULLY RETRIEVED!");
     }
 }
 catch (Exception imgEx)
