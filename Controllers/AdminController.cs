@@ -17,7 +17,7 @@ namespace Concert_Backend.Controllers
             _context = context;
         }
 
-        // --- 0. GET DASHBOARD STATS (Optimized) ---
+        // --- 0. GET DASHBOARD STATS (Paginated & Optimized) ---
         [HttpGet("stats")]
         public async Task<IActionResult> GetDashboardStats([FromQuery] int page = 1)
         {
@@ -25,13 +25,12 @@ namespace Concert_Backend.Controllers
             {
                 const int pageSize = 5;
 
-                // 1. Calculate Totals
-                // Use double? to handle nulls if no tickets exist yet
+                // 1. Calculate Totals (Summing directly from DB)
                 var totalRevenue = await _context.Tickets.SumAsync(t => (double?)t.Price) ?? 0;
                 var totalTickets = await _context.Purchases.SumAsync(p => (int?)p.Quantity) ?? 0;
                 var totalPurchasesCount = await _context.Purchases.CountAsync();
 
-                // 2. Fetch Paginated Recent Purchases with Join logic
+                // 2. Fetch Recent Purchases with efficient Title Retrieval
                 var recentPurchases = await _context.Purchases
                     .OrderByDescending(p => p.CreatedAt)
                     .Skip((page - 1) * pageSize)
@@ -42,11 +41,11 @@ namespace Concert_Backend.Controllers
                         p.TicketType,
                         p.Quantity,
                         p.CreatedAt,
-                        // Joining via Ticket to get the Concert Title efficiently
+                        // This projection is more efficient than a subquery where possible
                         ConcertTitle = _context.Tickets
                             .Where(t => t.PaymentId == p.PaymentId)
                             .Select(t => t.Concert.ConcertTitle)
-                            .FirstOrDefault() ?? "Unknown Event"
+                            .FirstOrDefault() ?? "Event Name"
                     })
                     .ToListAsync();
 
@@ -64,7 +63,7 @@ namespace Concert_Backend.Controllers
             }
         }
 
-        // --- 1. USER MANAGEMENT ---
+        // --- 1. USER MANAGEMENT (New in this version) ---
         [HttpGet("users")]
         public async Task<IActionResult> GetAllUsers()
         {
@@ -96,7 +95,7 @@ namespace Concert_Backend.Controllers
             return Ok(new { message = "Role updated" });
         }
 
-        // --- 2. ADD NEW CONCERT (Fixed Syntax) ---
+        // --- 2. ADD NEW CONCERT ---
         [HttpPost("add-concert")]
         public async Task<IActionResult> AddConcert([FromBody] Concert concert)
         {
@@ -104,7 +103,8 @@ namespace Concert_Backend.Controllers
             {
                 if (concert == null) return BadRequest("Invalid concert data");
                 
-                concert.ConcertId = 0; // Ensure DB generates ID
+                // Ensure ID is not manually set so DB can auto-increment
+                concert.ConcertId = 0; 
                 _context.Concerts.Add(concert);
                 await _context.SaveChangesAsync();
                 
@@ -123,6 +123,8 @@ namespace Concert_Backend.Controllers
             var concert = await _context.Concerts.FindAsync(id);
             if (concert == null) return NotFound();
 
+            // Note: If you have foreign keys (Tickets) pointing here, 
+            // you may need to handle Cascade Delete in your DbContext.
             _context.Concerts.Remove(concert);
             await _context.SaveChangesAsync();
             return Ok(new { message = "Deleted" });
@@ -135,6 +137,7 @@ namespace Concert_Backend.Controllers
             var concert = await _context.Concerts.FindAsync(id);
             if (concert == null) return NotFound();
 
+            // Update all properties from the request body
             concert.ConcertTitle = updated.ConcertTitle;
             concert.Venue = updated.Venue;
             concert.Date = updated.Date;
