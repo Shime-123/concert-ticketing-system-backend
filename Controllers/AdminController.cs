@@ -79,15 +79,21 @@ namespace Concert_Backend.Controllers
             return Ok(concert);
         }
 
-        [HttpPut("update-concert/{id}")]
-        public async Task<IActionResult> UpdateConcert(int id, [FromBody] Concert updated)
-        {
-            var concert = await _context.Concerts.FindAsync(id);
-            if (concert == null) return NotFound();
-            _context.Entry(concert).CurrentValues.SetValues(updated); // Syncs all fields automatically
-            await _context.SaveChangesAsync();
-            return Ok(concert);
-        }
+[HttpPut("update-concert/{id}")]
+public async Task<IActionResult> UpdateConcert(int id, [FromBody] Concert updated)
+{
+    var concert = await _context.Concerts.FindAsync(id);
+    if (concert == null) return NotFound();
+
+    // Force the ID to match the route to prevent EF tracking errors
+    updated.ConcertId = id; 
+
+    // This syncs all fields from 'updated' into 'concert'
+    _context.Entry(concert).CurrentValues.SetValues(updated); 
+    
+    await _context.SaveChangesAsync();
+    return Ok(concert);
+}
 
         [HttpDelete("delete-concert/{id}")]
         public async Task<IActionResult> DeleteConcert(int id)

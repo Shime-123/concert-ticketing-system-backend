@@ -29,6 +29,8 @@ builder.Services.AddHttpClient();
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
+        // This ensures "concertTitle" from React maps to "ConcertTitle" in C#
+        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true; 
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
     });
 
