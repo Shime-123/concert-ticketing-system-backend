@@ -17,83 +17,39 @@ namespace Concert_Backend.Controllers
             _context = context;
         }
 
-        // --- 0. GET DASHBOARD STATS (Paginated & Optimized) ---
-        [HttpGet("stats")]
-        public async Task<IActionResult> GetDashboardStats([FromQuery] int page = 1)
-        {
-            try
-            {
-                const int pageSize = 5;
+        // --- 1. GET DASHBOARD STATS ---
+[HttpGet("stats")]
+public async Task<IActionResult> GetDashboardStats()
+{
+    try
+    {
+        var totalRevenue = await _context.Tickets.SumAsync(t => (double?)t.Price) ?? 0;
+        var totalTickets = await _context.Purchases.SumAsync(p => (int?)p.Quantity) ?? 0;
 
-                // 1. Calculate Totals (Summing directly from DB)
-                var totalRevenue = await _context.Tickets.SumAsync(t => (double?)t.Price) ?? 0;
-                var totalTickets = await _context.Purchases.SumAsync(p => (int?)p.Quantity) ?? 0;
-                var totalPurchasesCount = await _context.Purchases.CountAsync();
+var recentPurchases = await _context.Purchases
+    .OrderByDescending(p => p.CreatedAt)
+    .Take(10)
+    .Select(p => new {
+        p.PaymentId,
+        p.UserEmail,
+        p.TicketType,
+        p.Quantity,
+        p.CreatedAt,
+        // Join with Tickets/Concert to get the Title
+        ConcertTitle = _context.Tickets
+            .Where(t => t.PaymentId == p.PaymentId)
+            .Select(t => t.Concert.ConcertTitle)
+            .FirstOrDefault() ?? "Concert"
+    })
+    .ToListAsync();
 
-                // 2. Fetch Recent Purchases with efficient Title Retrieval
-                var recentPurchases = await _context.Purchases
-                    .OrderByDescending(p => p.CreatedAt)
-                    .Skip((page - 1) * pageSize)
-                    .Take(pageSize)
-                    .Select(p => new {
-                        p.PaymentId,
-                        p.UserEmail,
-                        p.TicketType,
-                        p.Quantity,
-                        p.CreatedAt,
-                        // This projection is more efficient than a subquery where possible
-                        ConcertTitle = _context.Tickets
-                            .Where(t => t.PaymentId == p.PaymentId)
-                            .Select(t => t.Concert.ConcertTitle)
-                            .FirstOrDefault() ?? "Event Name"
-                    })
-                    .ToListAsync();
-
-                return Ok(new { 
-                    totalRevenue, 
-                    totalTickets, 
-                    recentPurchases,
-                    totalPages = (int)Math.Ceiling((double)totalPurchasesCount / pageSize),
-                    currentPage = page
-                });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Stats error", error = ex.Message });
-            }
-        }
-
-        // --- 1. USER MANAGEMENT (New in this version) ---
-        [HttpGet("users")]
-        public async Task<IActionResult> GetAllUsers()
-        {
-            var users = await _context.Users
-                .Select(u => new { u.Name, u.Email, u.Role, u.IsSuspended })
-                .ToListAsync();
-            return Ok(users);
-        }
-
-        [HttpPut("toggle-suspension/{email}")]
-        public async Task<IActionResult> ToggleSuspension(string email)
-        {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-            if (user == null) return NotFound("User not found");
-
-            user.IsSuspended = !user.IsSuspended;
-            await _context.SaveChangesAsync();
-            return Ok(new { isSuspended = user.IsSuspended });
-        }
-
-        [HttpPut("update-role")]
-        public async Task<IActionResult> UpdateRole([FromBody] RoleUpdateDto data)
-        {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == data.Email);
-            if (user == null) return NotFound("User not found");
-
-            user.Role = data.Role;
-            await _context.SaveChangesAsync();
-            return Ok(new { message = "Role updated" });
-        }
+        return Ok(new { totalRevenue, totalTickets, recentPurchases });
+    }
+    catch (Exception ex)
+    {
+        return StatusCode(500, new { message = "Stats error", error = ex.Message });
+    }
+}
 
         // --- 2. ADD NEW CONCERT ---
         [HttpPost("add-concert")]
@@ -102,12 +58,9 @@ namespace Concert_Backend.Controllers
             try
             {
                 if (concert == null) return BadRequest("Invalid concert data");
-                
-                // Ensure ID is not manually set so DB can auto-increment
-                concert.ConcertId = 0; 
+
                 _context.Concerts.Add(concert);
                 await _context.SaveChangesAsync();
-                
                 return Ok(new { message = "Concert added successfully!", concert });
             }
             catch (Exception ex)
@@ -120,42 +73,81 @@ namespace Concert_Backend.Controllers
         [HttpDelete("delete-concert/{id}")]
         public async Task<IActionResult> DeleteConcert(int id)
         {
-            var concert = await _context.Concerts.FindAsync(id);
-            if (concert == null) return NotFound();
+            try
+            {
+                var concert = await _context.Concerts.FindAsync(id);
+                if (concert == null) return NotFound("Concert not found");
 
-            // Note: If you have foreign keys (Tickets) pointing here, 
-            // you may need to handle Cascade Delete in your DbContext.
-            _context.Concerts.Remove(concert);
-            await _context.SaveChangesAsync();
-            return Ok(new { message = "Deleted" });
+                _context.Concerts.Remove(concert);
+                await _context.SaveChangesAsync();
+                return Ok(new { message = "Concert deleted successfully" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error deleting concert", error = ex.Message });
+            }
         }
 
-        // --- 4. UPDATE CONCERT (Full Field Mapping) ---
+        // --- 4. EDIT CONCERT (FIXED: Added IsSoldOut & Stripe IDs) ---
         [HttpPut("update-concert/{id}")]
-        public async Task<IActionResult> UpdateConcert(int id, [FromBody] Concert updated)
+        public async Task<IActionResult> UpdateConcert(int id, [FromBody] Concert updatedConcert)
         {
-            var concert = await _context.Concerts.FindAsync(id);
-            if (concert == null) return NotFound();
+            try 
+            {
+                var concert = await _context.Concerts.FindAsync(id);
+                if (concert == null) return NotFound(new { message = "Concert not found" });
 
-            // Update all properties from the request body
-            concert.ConcertTitle = updated.ConcertTitle;
-            concert.Venue = updated.Venue;
-            concert.Date = updated.Date;
-            concert.ImageUrl = updated.ImageUrl;
-            concert.RegularPrice = updated.RegularPrice;
-            concert.VipPrice = updated.VipPrice;
-            concert.RegularStripeId = updated.RegularStripeId;
-            concert.VipStripeId = updated.VipStripeId;
-            concert.IsSoldOut = updated.IsSoldOut;
+                // Map all fields correctly
+                concert.ConcertTitle = updatedConcert.ConcertTitle;
+                concert.Venue = updatedConcert.Venue;
+                concert.Date = updatedConcert.Date;
+                concert.ImageUrl = updatedConcert.ImageUrl;
+                
+                // Pricing
+                concert.RegularPrice = updatedConcert.RegularPrice;
+                concert.VipPrice = updatedConcert.VipPrice;
 
-            await _context.SaveChangesAsync();
-            return Ok(concert);
+                // Stripe IDs (Crucial for payment flow)
+                concert.RegularStripeId = updatedConcert.RegularStripeId;
+                concert.VipStripeId = updatedConcert.VipStripeId;
+
+                // SOLD OUT LOGIC (This was the missing piece!)
+                concert.IsSoldOut = updatedConcert.IsSoldOut;
+
+                await _context.SaveChangesAsync();
+                return Ok(new { message = "Updated successfully!", concert });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Update failed", error = ex.Message });
+            }
         }
-    }
 
-    public class RoleUpdateDto
-    {
-        public string Email { get; set; }
-        public string Role { get; set; }
+        // --- 5. EXPORT REPORT (Backend Version) ---
+        [HttpGet("export")]
+        public async Task<IActionResult> ExportPurchases()
+        {
+            try 
+            {
+                var purchases = await _context.Purchases.OrderByDescending(p => p.CreatedAt).ToListAsync();
+                var csv = new StringBuilder();
+                
+                // Header row
+                csv.AppendLine("PaymentId,UserEmail,TicketType,Quantity,Date");
+
+                foreach (var p in purchases)
+                {
+                    // Using quotes for Email to avoid CSV breaking on special characters
+                    csv.AppendLine($"{p.PaymentId},\"{p.UserEmail}\",{p.TicketType},{p.Quantity},{p.CreatedAt:yyyy-MM-dd HH:mm}");
+                }
+
+                var bytes = Encoding.UTF8.GetBytes(csv.ToString());
+                return File(bytes, "text/csv", $"ConcertSalesReport_{DateTime.Now:yyyyMMdd}.csv");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Export failed", error = ex.Message });
+            }
+        }
     }
 }
