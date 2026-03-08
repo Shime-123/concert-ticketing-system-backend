@@ -89,53 +89,76 @@ catch (Exception imgEx)
                 using PngByteQRCode qrCode = new PngByteQRCode(qrCodeData);
                 byte[] qrCodeImage = qrCode.GetGraphic(20);
 
-                // 3. Generate PDF
-                byte[] pdfBytes = Document.Create(container =>
+// 3. Generate PDF
+byte[] pdfBytes = Document.Create(container =>
+{
+    container.Page(page =>
+    {
+        page.Size(new PageSize(500, 310)); // Slightly taller for the footer
+        page.Margin(0);
+        
+        // Background Layer
+        page.Background().Layers(layers =>
+        {
+            if (bgImageBytes != null)
+                layers.PrimaryLayer().Image(bgImageBytes).FitArea();
+            else
+                layers.PrimaryLayer().Background(Colors.Black);
+            
+            layers.Layer().Background("#DD000000"); // Slightly darker for better contrast
+        });
+
+        page.Content().Column(mainCol => 
+        {
+            // MAIN TICKET CONTENT
+            mainCol.Item().Row(row =>
+            {
+                // Left Side: Event Details
+                row.RelativeItem(3).Padding(20).Column(col =>
                 {
-                    container.Page(page =>
+                    col.Item().Text(artist.ToUpper()).FontSize(26).ExtraBold().FontColor(Colors.White).LetterSpacing(0.05f);
+                    col.Item().Text($"{venue.ToUpper()}").FontSize(10).SemiBold().FontColor(Colors.Yellow.Medium);
+                    col.Item().Text($"{DateTime.Now:MMMM dd, yyyy} • Doors open at 6:00 PM").FontSize(8).FontColor(Colors.Grey.Lighten2);
+                    
+                    col.Item().PaddingVertical(10).LineHorizontal(1).LineColor(Colors.Grey.Darken3);
+
+                    col.Item().Table(table =>
                     {
-                        page.Size(new PageSize(500, 300));
-                        page.Margin(0);
-                        page.Background().Layers(layers =>
-                        {
-                            if (bgImageBytes != null)
-                                layers.PrimaryLayer().Image(bgImageBytes).FitArea();
-                            else
-                                layers.PrimaryLayer().Background(Colors.Black);
-                            
-                            layers.Layer().Background("#CC000000"); // Dark overlay for text clarity
-                        });
-
-                        page.Content().Padding(10).Row(row =>
-                        {
-                            row.RelativeItem(3).Padding(15).Column(col =>
-                            {
-                                col.Item().Text(artist.ToUpper()).FontSize(24).ExtraBold().FontColor(Colors.White);
-                                col.Item().Text($"{venue} • {DateTime.Now:MMMM dd, yyyy}").FontSize(9).FontColor(Colors.Cyan.Lighten3);
-                                col.Spacing(10);
-                                col.Item().Table(table =>
-                                {
-                                    table.ColumnsDefinition(c => { c.ConstantColumn(60); c.RelativeColumn(); });
-                                    void AddRow(string label, string value) {
-                                        table.Cell().PaddingVertical(1).Text(label).FontColor(Colors.Grey.Lighten2).FontSize(9).Bold();
-                                        table.Cell().PaddingVertical(1).Text(value).FontColor(Colors.White).FontSize(9);
-                                    }
-                                    AddRow("ID:", ticketId.Length > 15 ? ticketId.Substring(0, 15) : ticketId);
-                                    AddRow("Name:", customerName);
-                                    AddRow("Type:", ticketType);
-                                    AddRow("Qty:", qty.ToString());
-                                });
-                            });
-
-                            row.RelativeItem(1.5f).Padding(10).Column(col =>
-                            {
-                                col.Item().AlignCenter().MaxWidth(85).Image(qrCodeImage);
-                                col.Item().PaddingTop(5).AlignCenter().Text("Scan to verify").FontSize(7).FontColor(Colors.Grey.Lighten1);
-                                col.Item().AlignBottom().AlignCenter().Background(Colors.Yellow.Medium).PaddingHorizontal(8).Text(ticketType.ToUpper()).FontSize(10).Black().Bold();
-                            });
-                        });
+                        table.ColumnsDefinition(c => { c.ConstantColumn(60); c.RelativeColumn(); });
+                        
+                        void AddRow(string label, string value) {
+                            table.Cell().PaddingVertical(2).Text(label).FontColor(Colors.Grey.Lighten1).FontSize(8).Bold();
+                            table.Cell().PaddingVertical(2).Text(value).FontColor(Colors.White).FontSize(9).Medium();
+                        }
+                        
+                        AddRow("TICKET ID:", ticketId.Length > 15 ? ticketId.Substring(0, 15) : ticketId);
+                        AddRow("HOLDER:", customerName.ToUpper());
+                        AddRow("ACCESS:", ticketType);
+                        AddRow("QUANTITY:", qty.ToString());
                     });
-                }).GeneratePdf();
+                });
+
+                // Right Side: QR Code & Branding
+                row.RelativeItem(1.5f).Background(Colors.Grey.Darken4).Padding(15).Column(col =>
+                {
+                    col.Item().AlignCenter().Text("ETHIO CONCERT").FontSize(8).ExtraBold().FontColor(Colors.White);
+                    col.Item().PaddingVertical(5).AlignCenter().MaxWidth(90).Image(qrCodeImage);
+                    col.Item().AlignCenter().Text("SCAN TO VERIFY").FontSize(6).FontColor(Colors.Grey.Lighten1);
+                    
+                    col.Item().Spacing(10);
+                    col.Item().AlignBottom().AlignCenter().Background(Colors.Yellow.Medium).PaddingVertical(4).PaddingHorizontal(8).Text(ticketType.ToUpper()).FontSize(11).Black().ExtraBold();
+                });
+            });
+
+            // PROFESSIONAL FOOTER
+            mainCol.Item().AlignBottom().Background(Colors.Black).PaddingHorizontal(20).PaddingVertical(5).Row(footerRow => 
+            {
+                footerRow.RelativeItem().Text($"© {DateTime.Now.Year} ETHIO CONCERT ORGANIZATION | ALL RIGHTS RESERVED").FontSize(7).FontColor(Colors.Grey.Darken1).Italic();
+                footerRow.RelativeItem().AlignRight().Text("NON-TRANSFERABLE • VALID FOR ONE ENTRY").FontSize(7).FontColor(Colors.Grey.Darken1).Bold();
+            });
+        });
+    });
+}).GeneratePdf();
 
                 // 4. Send via Brevo API
                 using var apiClient = _httpClientFactory.CreateClient();
