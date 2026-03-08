@@ -1,15 +1,16 @@
 using Concert_Backend.Data;
 using Concert_Backend.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders; // Required for PhysicalFileProvider
+
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- 1. Database Context (Updated for PostgreSQL/Neon) ---
+// --- 1. Database Context ---
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(connectionString)); // Changed from UseSqlServer to UseNpgsql
+    options.UseNpgsql(connectionString));
 
 // --- 2. Register Custom Services ---
 builder.Services.AddScoped<IEmailService, EmailService>();
@@ -23,7 +24,7 @@ builder.Services.AddCors(options =>
                         .AllowAnyHeader());
 });
 
-// --- 4. Controllers ---
+// --- 4. Controllers & HttpClient ---
 builder.Services.AddHttpClient();
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -36,8 +37,7 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// --- 5. AUTOMATIC DATABASE MIGRATION (The part you were missing) ---
-// This runs every time the app starts on Render and creates your Neon tables.
+// --- 5. AUTOMATIC DATABASE MIGRATION ---
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -45,22 +45,34 @@ using (var scope = app.Services.CreateScope())
     {
         var context = services.GetRequiredService<AppDbContext>();
         Console.WriteLine("Checking for pending migrations...");
-        
-        // This forces the tables to be created
         context.Database.Migrate(); 
-        
         Console.WriteLine("Migrations applied successfully!");
     }
     catch (Exception ex)
     {
-        // This will tell us EXACTLY why it failed in the Render logs
         Console.WriteLine($"MIGRATION ERROR: {ex.Message}");
-        if (ex.InnerException != null) 
-            Console.WriteLine($"INNER ERROR: {ex.InnerException.Message}");
     }
 }
 
-// Enable Swagger
+// --- 6. STATIC FILES CONFIGURATION (The missing piece for the 404 fix) ---
+app.UseStaticFiles(); // Handles wwwroot
+
+// This maps the physical "assets" folder to the "/assets" URL path
+var assetsPath = Path.Combine(builder.Environment.ContentRootPath, "assets");
+
+// Create the folder if it doesn't exist to prevent errors on startup
+if (!Directory.Exists(assetsPath))
+{
+    Directory.CreateDirectory(assetsPath);
+}
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(assetsPath),
+    RequestPath = "/assets"
+});
+
+// --- 7. Middleware Pipeline ---
 app.UseSwagger();
 app.UseSwaggerUI();
 

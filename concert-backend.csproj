@@ -21,6 +21,9 @@
     <PackageReference Include="QuestPDF" Version="2026.2.2" />
     <PackageReference Include="Stripe.net" Version="43.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <Content Include="assets\**">
+    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>
