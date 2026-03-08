@@ -1,6 +1,6 @@
+# .gitignore
 bin/
 obj/
 appsettings.json
-.vs/
+appsettings.Development.json
 *.user
-appsettings.json
