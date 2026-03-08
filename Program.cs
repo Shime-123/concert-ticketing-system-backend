@@ -24,6 +24,7 @@ builder.Services.AddCors(options =>
 });
 
 // --- 4. Controllers ---
+builder.Services.AddHttpClient();
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
