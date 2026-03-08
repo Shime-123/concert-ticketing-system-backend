@@ -53,52 +53,58 @@ namespace Concert_Backend.Services
         {
             try
             {
-                // 1. Get the Background Image (From Web or Local)
-                // 1. Get the Background Image (With Debugging)
-       byte[] bgImageBytes = null;
-       try 
-         {
-         if (!string.IsNullOrEmpty(imageUrl))
-        {
+// 1. Get the Background Image Dynamically from the Database URL
+byte[] bgImageBytes = null;
+try 
+{
+    if (!string.IsNullOrEmpty(imageUrl))
+    {
         if (imageUrl.StartsWith("http"))
         {
-            Console.WriteLine($"🌐 Attempting to download external image: {imageUrl}");
+            // CASE: External URL (e.g., Unsplash)
+            Console.WriteLine($"🌐 Downloading external image: {imageUrl}");
             using var client = _httpClientFactory.CreateClient();
-            // Set a timeout so a slow image doesn't hang the task
             client.Timeout = TimeSpan.FromSeconds(10); 
             bgImageBytes = await client.GetByteArrayAsync(imageUrl);
         }
-else
-{
-    // 1. Clean the path from the DB (remove leading slashes or Windows drives)
-    string cleanPath = imageUrl.Replace("\\", "/"); 
-    if (cleanPath.Contains(":")) // Removes "D:/" if it accidentally exists
-    {
-        cleanPath = cleanPath.Split(':').Last().TrimStart('/');
-    }
-    cleanPath = cleanPath.TrimStart('/');
+        else
+        {
+            // CASE: Local Path (e.g., /assets/artist.jpg)
+            // 1. Clean the path (remove leading slashes and fix slashes for Linux)
+            string cleanPath = imageUrl.Replace("\\", "/").TrimStart('/');
 
-    // 2. Combine with ContentRootPath (This points to the app folder on Render)
-    string localPath = Path.Combine(_env.ContentRootPath, cleanPath);
-    
-    Console.WriteLine($"📂 SYSTEM CHECK: Looking for image at {localPath}");
-    
-    if (File.Exists(localPath)) 
-    {
-        bgImageBytes = await File.ReadAllBytesAsync(localPath);
-        Console.WriteLine("✅ IMAGE FOUND!");
-    }
-    else 
-    {
-        Console.WriteLine("⚠️ IMAGE NOT FOUND. Defaulting to black background.");
+            // 2. IMPORTANT: Render puts your files in a "wwwroot" or the "ContentRoot"
+            // We check both to be safe.
+            string localPath = Path.Combine(_env.WebRootPath ?? _env.ContentRootPath, cleanPath);
+            
+            Console.WriteLine($"📂 SYSTEM CHECK: Looking for image at {localPath}");
+            
+            if (File.Exists(localPath)) 
+            {
+                bgImageBytes = await File.ReadAllBytesAsync(localPath);
+                Console.WriteLine("✅ DYNAMIC IMAGE FOUND!");
+            }
+            else 
+            {
+                // Fallback: If it's not in wwwroot, check the direct ContentRoot
+                string fallbackPath = Path.Combine(_env.ContentRootPath, cleanPath);
+                if (File.Exists(fallbackPath))
+                {
+                    bgImageBytes = await File.ReadAllBytesAsync(fallbackPath);
+                    Console.WriteLine("✅ DYNAMIC IMAGE FOUND IN CONTENTROOT!");
+                }
+                else
+                {
+                    Console.WriteLine($"⚠️ IMAGE NOT FOUND at {localPath} or {fallbackPath}");
+                }
+            }
+        }
     }
 }
-        }
-        }
-         catch (Exception imgEx)
-        {
-         Console.WriteLine($"❌ IMAGE LOAD ERROR: {imgEx.Message}");
-           }
+catch (Exception imgEx)
+{
+    Console.WriteLine($"❌ IMAGE LOAD ERROR: {imgEx.Message}");
+}
 
                 // 2. Generate QR Code
                 using QRCodeGenerator qrGenerator = new QRCodeGenerator();
